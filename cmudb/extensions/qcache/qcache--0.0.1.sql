@@ -1,7 +1,6 @@
-set allow_system_table_mods=true;
-drop table pg_catalog.pg_qcache;
+drop table if exists pg_catalog.pg_qcache;
 create table pg_catalog.pg_qcache(
-    queryid int64,
+    queryid bigint,
     dbid oid,
     procid int32,
     timestamp int64,

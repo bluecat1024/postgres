@@ -30,19 +30,24 @@ static Oid table_oid = -1;
 static IndexInfo *index_info = NULL;
 
 void _PG_init() {
+    Relation index_relation;
+
     prev_ExecutorEnd = ExecutorEnd_hook;
     ExecutorEnd_hook = qcache_ExecutorEnd;
 
     index_oid = RelnameGetRelid(INDEX_NAME);
     table_oid = RelnameGetRelid(TABLE_NAME);
 
+    elog(LOG, "QCache Index oid: %d\n", index_oid);
+    elog(LOG, "QCache Table oid: %d\n", table_oid);
+
     /* Initialize the index info. */
-    Relation index_relation = index_open(index_oid, AccessShareLock);
+    index_relation = index_open(index_oid, AccessShareLock);
     index_info = BuildIndexInfo(index_relation);
     relation_close(index_relation, AccessShareLock);
 }
 
-void _PG_finish() {
+void _PG_fini() {
     ExecutorEnd_hook = prev_ExecutorEnd;
     index_oid = InvalidOid;
     table_oid = InvalidOid;
@@ -70,7 +75,7 @@ static bool IndexLookup(Relation index_relation, IndexTuple ind_tup) {
 		insertstate.buf = lbuf;
 
         /* Get matching tuple on leaf page */
-		offnum = _bt_binsrch_insert(state->rel, &insertstate);
+		offnum = _bt_binsrch_insert(index_relation, &insertstate);
         /* Compare first >= matching item on leaf page, if any */
 		page = BufferGetPage(lbuf);
         /* Should match on first heap TID when tuple has a posting list */
@@ -89,39 +94,47 @@ static bool IndexLookup(Relation index_relation, IndexTuple ind_tup) {
 }
 
 static void qcache_ExecutorEnd(QueryDesc *query_desc) {
+    Relation index_relation = NULL;
+    Relation table_relation = NULL;
+    int idx = 0;
+    Datum values[TABLE_COLUMN];
+    bool is_nulls[TABLE_COLUMN];
+    IndexTuple ind_tup = NULL;
+
     /* Open relation about index. */
     if (index_oid == InvalidOid || table_oid == InvalidOid
         || index_info == NULL) {
-        elog(ERROR, "Cannot get the oid. Check the relname for lookup.")
+        elog(ERROR, "Cannot get the oid. Check the relname for lookup.");
         return;
     }
-    Relation index_relation = index_open(index_oid, RowExclusiveLock);
-    Relation table_relation = NULL;
-    Datum values[TABLE_COLUMN];
-    bool is_nulls[TABLE_COLUMN];
+
+    index_relation = index_open(index_oid, RowExclusiveLock);
 
     /* Fill in the index tuple.*/
     memset(values, 0, sizeof values);
     memset(is_nulls, 0, sizeof(is_nulls));
-    int idx = 0;
     values[idx++] = Int64GetDatumFast(query_desc->plannedstmt->queryId);
     values[idx++] = ObjectIdGetDatum(MyDatabaseId);
     values[idx++] = Int32GetDatum(MyProcPid);
-    IndexTuple ind_tup = index_form_tuple(index_relation->rd_att, values, is_nulls);
+    ind_tup = index_form_tuple(index_relation->rd_att, values, is_nulls);
 
     /* Insert new tuples to table and index if not found. */
     if (!IndexLookup(index_relation, ind_tup)) {
+        HeapTuple heap_tup = NULL;
+        TimestampTz stmt_start_ts;
+        ItemPointer tid = NULL;
+
         table_relation = table_open(table_oid, RowExclusiveLock);
 
-        TimestampTz stmt_start_ts = GetCurrentStatementStartTimestamp();
+        stmt_start_ts = GetCurrentStatementStartTimestamp();
         values[idx++] = Int64GetDatumFast(stmt_start_ts);
         is_nulls[idx++] = true;
 
-        HeapTuple heap_tup = heap_form_tuple(table_relation->rd_att, values, is_nulls);
+        heap_tup = heap_form_tuple(table_relation->rd_att, values, is_nulls);
         simple_heap_insert(table_relation, heap_tup);
 
         /* Get new tid and add one entry to index. */
-        ItemPointer tid = &(heap_tup->t_self);
+        tid = &(heap_tup->t_self);
         btinsert(index_relation, values, is_nulls, tid, table_relation, true, true, index_info);
 
         pfree(heap_tup);
