@@ -29,26 +29,27 @@ static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
 static Oid index_oid = -1;
 static Oid table_oid = -1;
 static IndexInfo *index_info = NULL;
+static Relation index_relation = NULL;
 
-void _PG_init() {
-    Relation index_relation;
-
-    prev_ExecutorEnd = ExecutorEnd_hook;
-    ExecutorEnd_hook = qcache_ExecutorEnd;
+void _PG_init(void) {
+    elog(LOG, "QCache extension initialization.");
 
     index_oid = RelnameGetRelid(INDEX_NAME);
     table_oid = RelnameGetRelid(TABLE_NAME);
 
-    elog(LOG, "QCache Index oid: %d\n", index_oid);
-    elog(LOG, "QCache Table oid: %d\n", table_oid);
+    elog(LOG, "QCache Index oid: %d", index_oid);
+    elog(LOG, "QCache Table oid: %d", table_oid);
 
     /* Initialize the index info. */
     index_relation = index_open(index_oid, AccessShareLock);
     index_info = BuildIndexInfo(index_relation);
     relation_close(index_relation, AccessShareLock);
+
+    prev_ExecutorEnd = ExecutorEnd_hook;
+    ExecutorEnd_hook = qcache_ExecutorEnd;
 }
 
-void _PG_fini() {
+void _PG_fini(void) {
     ExecutorEnd_hook = prev_ExecutorEnd;
     index_oid = InvalidOid;
     table_oid = InvalidOid;
