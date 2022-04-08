@@ -4,3 +4,4 @@
 from dodos.ci import *
 from dodos.hutch import *
 from dodos.noisepage import *
+from dodos.qcache import *
