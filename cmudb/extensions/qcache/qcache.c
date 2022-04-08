@@ -22,6 +22,7 @@ void		_PG_init(void);
 void		_PG_fini(void);
 
 static bool IndexLookup(Relation index_relation, IndexTuple ind_tup);
+static void NormalQuit(QueryDesc *query_desc);
 static void qcache_ExecutorEnd(QueryDesc *query_desc);
 
 static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
@@ -93,6 +94,15 @@ static bool IndexLookup(Relation index_relation, IndexTuple ind_tup) {
     return exists;
 }
 
+static void NormalQuit(QueryDesc *query_desc) {
+    /* Account for previous hook. */
+    if (prev_ExecutorEnd != NULL) {
+        prev_ExecutorEnd(query_desc);
+    } else {
+        standard_ExecutorEnd(query_desc);
+    }
+}
+
 static void qcache_ExecutorEnd(QueryDesc *query_desc) {
     Relation index_relation = NULL;
     Relation table_relation = NULL;
@@ -101,10 +111,18 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
     bool is_nulls[TABLE_COLUMN];
     IndexTuple ind_tup = NULL;
 
+    /* No handling for query 0. */
+    if (query_desc->plannedstmt->queryId == UINT64CONST(0)
+        || query_desc->totaltime == NULL) {
+        NormalQuit(query_desc);
+        return;
+    }
+
     /* Open relation about index. */
     if (index_oid == InvalidOid || table_oid == InvalidOid
         || index_info == NULL) {
         elog(ERROR, "Cannot get the oid. Check the relname for lookup.");
+        NormalQuit(query_desc);
         return;
     }
 
@@ -149,10 +167,5 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
         index_close(index_relation, RowExclusiveLock);
     }
 
-    /* Account for previous hook. */
-    if (prev_ExecutorEnd != NULL) {
-        prev_ExecutorEnd(query_desc);
-    } else {
-        standard_ExecutorEnd(query_desc);
-    }
+    NormalQuit(query_desc);
 }
