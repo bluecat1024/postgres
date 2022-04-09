@@ -23,27 +23,17 @@ void		_PG_fini(void);
 
 static bool IndexLookup(Relation index_relation, IndexTuple ind_tup);
 static void NormalQuit(QueryDesc *query_desc);
+static void InitOids();
 static void qcache_ExecutorEnd(QueryDesc *query_desc);
 
 static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
 static Oid index_oid = -1;
 static Oid table_oid = -1;
 static IndexInfo *index_info = NULL;
-static Relation index_relation = NULL;
+static bool oid_initialized = false;
 
 void _PG_init(void) {
     elog(LOG, "QCache extension initialization.");
-
-    index_oid = RelnameGetRelid(INDEX_NAME);
-    table_oid = RelnameGetRelid(TABLE_NAME);
-
-    elog(LOG, "QCache Index oid: %d", index_oid);
-    elog(LOG, "QCache Table oid: %d", table_oid);
-
-    /* Initialize the index info. */
-    index_relation = index_open(index_oid, AccessShareLock);
-    index_info = BuildIndexInfo(index_relation);
-    relation_close(index_relation, AccessShareLock);
 
     prev_ExecutorEnd = ExecutorEnd_hook;
     ExecutorEnd_hook = qcache_ExecutorEnd;
@@ -104,6 +94,30 @@ static void NormalQuit(QueryDesc *query_desc) {
     }
 }
 
+static void InitOids() {
+    Relation index_relation;
+
+    if (oid_initialized) {
+        return;
+    }
+
+    elog(LOG, "Initializing table oids.");
+
+    index_oid = RelnameGetRelid(INDEX_NAME);
+    table_oid = RelnameGetRelid(TABLE_NAME);
+
+    elog(LOG, "QCache Index oid: %d", index_oid);
+    elog(LOG, "QCache Table oid: %d", table_oid);
+
+    /* Initialize the index info. */
+    index_relation = index_open(index_oid, AccessShareLock);
+    index_info = BuildIndexInfo(index_relation);
+    relation_close(index_relation, AccessShareLock);
+
+    /* Set the flag. */
+    oid_initialized = true;
+}
+
 static void qcache_ExecutorEnd(QueryDesc *query_desc) {
     Relation index_relation = NULL;
     Relation table_relation = NULL;
@@ -118,6 +132,8 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
         NormalQuit(query_desc);
         return;
     }
+
+    InitOids();
 
     /* Open relation about index. */
     if (index_oid == InvalidOid || table_oid == InvalidOid
