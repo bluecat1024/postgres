@@ -81,6 +81,13 @@ static bool IndexLookup(Relation index_relation, IndexTuple ind_tup) {
 			_bt_compare(index_relation, key, page, offnum) == 0) {
                 elog(DEBUG1, "QCache lookup Exists");
             exists = true;
+        } else {
+            elog(DEBUG1, "QCache page max offset %d",
+            (int)PageGetMaxOffsetNumber(page));
+            elog(DEBUG1, "QCache page posting offset %d",
+            (int)insertstate.postingoff);
+            elog(DEBUG1, "QCache lookup compare result %d",
+            (int)_bt_compare(index_relation, key, page, offnum));
         }
 		_bt_relbuf(index_relation, lbuf);
     }
