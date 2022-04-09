@@ -183,7 +183,7 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
         /* Get new tid and add one entry to index. */
         tid = &(heap_tup->t_self);
         btinsert(index_relation, values, is_nulls, tid, table_relation,
-            UNIQUE_CHECK_EXISTING, false, index_info);
+            UNIQUE_CHECK_YES, false, index_info);
         elog(DEBUG1, "QCache inserted index qid: %" PRIu64, queryid);
 
         pfree(heap_tup);
