@@ -55,6 +55,8 @@ static bool IndexLookup(Relation index_relation, IndexTuple ind_tup) {
 
     key = _bt_mkscankey(index_relation, ind_tup);
     stack = _bt_search(index_relation, key, &lbuf, BT_READ, NULL);
+    elog(DEBUG1, "QCache lookup Lbuf valid %d",
+        (int)BufferIsValid(lbuf));
     if (BufferIsValid(lbuf)) {
         BTInsertStateData insertstate;
 		OffsetNumber offnum;
@@ -69,12 +71,15 @@ static bool IndexLookup(Relation index_relation, IndexTuple ind_tup) {
 
         /* Get matching tuple on leaf page */
 		offnum = _bt_binsrch_insert(index_relation, &insertstate);
+        elog(DEBUG1, "QCache lookup Offset %d",
+        (int)offnum);
         /* Compare first >= matching item on leaf page, if any */
 		page = BufferGetPage(lbuf);
         /* Should match on first heap TID when tuple has a posting list */
 		if (offnum <= PageGetMaxOffsetNumber(page) &&
 			insertstate.postingoff <= 0 &&
 			_bt_compare(index_relation, key, page, offnum) == 0) {
+                elog(DEBUG1, "QCache lookup Exists");
             exists = true;
         }
 		_bt_relbuf(index_relation, lbuf);
@@ -177,7 +182,8 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
         elog(DEBUG1, "QCache inserted heap qid: %" PRIu64, queryid);
         /* Get new tid and add one entry to index. */
         tid = &(heap_tup->t_self);
-        btinsert(index_relation, values, is_nulls, tid, table_relation, true, true, index_info);
+        btinsert(index_relation, values, is_nulls, tid, table_relation,
+            UNIQUE_CHECK_EXISTING, false, index_info);
         elog(DEBUG1, "QCache inserted index qid: %" PRIu64, queryid);
 
         pfree(heap_tup);
