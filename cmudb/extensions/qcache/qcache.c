@@ -102,7 +102,7 @@ static void InitOids() {
         return;
     }
 
-    elog(LOG, "Initializing table oids.");
+    elog(LOG, "QCache: Initializing table oids.");
 
     index_oid = RelnameGetRelid(INDEX_NAME);
     table_oid = RelnameGetRelid(TABLE_NAME);
@@ -131,8 +131,7 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
     elog(DEBUG1, "QCache Invocation qid: %" PRIu64, queryid);
 
     /* No handling for query 0. */
-    if (queryid == UINT64CONST(0)
-        || query_desc->totaltime == NULL) {
+    if (queryid == UINT64CONST(0)) {
         NormalQuit(query_desc);
         return;
     }
@@ -149,32 +148,37 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
 
     index_relation = index_open(index_oid, RowExclusiveLock);
 
+    elog(DEBUG1, "QCache lookup key qid: %" PRIu64, queryid);
     /* Fill in the index tuple.*/
-    memset(values, 0, sizeof values);
+    memset(values, 0, sizeof(values));
     memset(is_nulls, 0, sizeof(is_nulls));
     values[idx++] = Int64GetDatumFast(queryid);
     values[idx++] = ObjectIdGetDatum(MyDatabaseId);
     values[idx++] = Int32GetDatum(MyProcPid);
     ind_tup = index_form_tuple(index_relation->rd_att, values, is_nulls);
 
+    elog(DEBUG1, "QCache prepare lookup: %" PRIu64, queryid);
     /* Insert new tuples to table and index if not found. */
     if (!IndexLookup(index_relation, ind_tup)) {
         HeapTuple heap_tup = NULL;
         TimestampTz stmt_start_ts;
         ItemPointer tid = NULL;
 
+        elog(DEBUG1, "QCache inserting key qid: %" PRIu64, queryid);
         table_relation = table_open(table_oid, RowExclusiveLock);
 
         stmt_start_ts = GetCurrentStatementStartTimestamp();
         values[idx++] = Int64GetDatumFast(stmt_start_ts);
         is_nulls[idx++] = true;
 
+        elog(DEBUG1, "QCache prepare insert key qid: %" PRIu64, queryid);
         heap_tup = heap_form_tuple(table_relation->rd_att, values, is_nulls);
         simple_heap_insert(table_relation, heap_tup);
-
+        elog(DEBUG1, "QCache inserted heap qid: %" PRIu64, queryid);
         /* Get new tid and add one entry to index. */
         tid = &(heap_tup->t_self);
         btinsert(index_relation, values, is_nulls, tid, table_relation, true, true, index_info);
+        elog(DEBUG1, "QCache inserted index qid: %" PRIu64, queryid);
 
         pfree(heap_tup);
     }
