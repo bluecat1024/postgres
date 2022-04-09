@@ -1,5 +1,6 @@
 #include "postgres.h"
 #include "fmgr.h"
+#include <inttypes.h>
 
 #include "access/nbtree.h"
 #include "access/heapam.h"
@@ -125,9 +126,12 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
     Datum values[TABLE_COLUMN];
     bool is_nulls[TABLE_COLUMN];
     IndexTuple ind_tup = NULL;
+    uint64 queryid = query_desc->plannedstmt->queryId;
+
+    elog(DEBUG1, "QCache Invocation qid: %" PRIu64, queryid);
 
     /* No handling for query 0. */
-    if (query_desc->plannedstmt->queryId == UINT64CONST(0)
+    if (queryid == UINT64CONST(0)
         || query_desc->totaltime == NULL) {
         NormalQuit(query_desc);
         return;
@@ -148,7 +152,7 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
     /* Fill in the index tuple.*/
     memset(values, 0, sizeof values);
     memset(is_nulls, 0, sizeof(is_nulls));
-    values[idx++] = Int64GetDatumFast(query_desc->plannedstmt->queryId);
+    values[idx++] = Int64GetDatumFast(queryid);
     values[idx++] = ObjectIdGetDatum(MyDatabaseId);
     values[idx++] = Int32GetDatum(MyProcPid);
     ind_tup = index_form_tuple(index_relation->rd_att, values, is_nulls);
