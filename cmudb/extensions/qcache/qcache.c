@@ -54,9 +54,10 @@ static bool IndexLookup(Relation index_relation, IndexTuple ind_tup) {
 	bool		exists = false;
 
     key = _bt_mkscankey(index_relation, ind_tup);
+    key->pivotsearch = true;
+    key->scantid = NULL;
     stack = _bt_search(index_relation, key, &lbuf, BT_READ, NULL);
-    elog(DEBUG1, "QCache lookup Lbuf valid %d",
-        (int)BufferIsValid(lbuf));
+    
     if (BufferIsValid(lbuf)) {
         BTInsertStateData insertstate;
 		OffsetNumber offnum;
@@ -71,15 +72,12 @@ static bool IndexLookup(Relation index_relation, IndexTuple ind_tup) {
 
         /* Get matching tuple on leaf page */
 		offnum = _bt_binsrch_insert(index_relation, &insertstate);
-        elog(DEBUG1, "QCache lookup Offset %d",
-        (int)offnum);
         /* Compare first >= matching item on leaf page, if any */
 		page = BufferGetPage(lbuf);
         /* Should match on first heap TID when tuple has a posting list */
 		if (offnum <= PageGetMaxOffsetNumber(page) &&
 			insertstate.postingoff <= 0 &&
 			_bt_compare(index_relation, key, page, offnum) == 0) {
-                elog(DEBUG1, "QCache lookup Exists");
             exists = true;
         } else {
             elog(DEBUG1, "QCache page max offset %d",
@@ -160,7 +158,6 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
 
     index_relation = index_open(index_oid, RowExclusiveLock);
 
-    elog(DEBUG1, "QCache lookup key qid: %" PRIu64, queryid);
     /* Fill in the index tuple.*/
     memset(values, 0, sizeof(values));
     memset(is_nulls, 0, sizeof(is_nulls));
