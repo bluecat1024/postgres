@@ -72,6 +72,8 @@ logger = logging.getLogger("tscout")
 modeler = model.Model()
 operating_units = modeler.operating_units
 metrics = modeler.metrics
+# Knob to enable decoupled collection.
+decoupled = False
 
 # OUs may have common structs that cause duplicate struct definitions in
 # the collector_c file that is generated, e.g., struct Plan.
@@ -151,6 +153,8 @@ def generate_markers(operation, ou_index, reagents_used):
     markers_c = markers_c.replace("SUBST_FEATURES", operation.features_struct())
     markers_c = markers_c.replace("SUBST_INDEX", str(ou_index))
     markers_c = markers_c.replace("SUBST_FIRST_FEATURE", operation.features_list[0].bpf_tuple[0].name)
+    # Replace decoupled flag.
+    markers_c = markers_c.replace("SUBST_feature_decoupled", str(int(decoupled)))
 
     # Accumulate struct definitions.
     HELPER_STRUCT_DEFS = {**HELPER_STRUCT_DEFS, **operation.helper_structs()}
@@ -251,9 +255,16 @@ def collector(collector_flags, ou_processor_queues, pid, socket_fd):
             # pylint: disable=unused-argument
             raw_data = collector_bpf[output_buffer].event(data)
             operating_unit = operating_units[raw_data.ou_index]
-            event_features = operating_unit.serialize_features(
-                raw_data
-            )  # TODO(Matt): consider moving serialization to CSV string to Processor
+            
+            if decoupled:
+                event_features = ",".join([str(raw_data.query_id),
+                    str(raw_data.db_id), str(raw_data.pid),
+                    str(raw_data.statement_ts),
+                    str(raw_data.transaction_ts)])
+            else:
+                event_features = operating_unit.serialize_features(
+                    raw_data
+                )  # TODO(Matt): consider moving serialization to CSV string to Processor
             training_data = "".join(
                 [event_features, ",", ",".join(metric.serialize(raw_data) for metric in metrics), "\n"]
             )
@@ -308,7 +319,10 @@ def processor(ou, buffered_strings, outdir, append):
         if file_mode == "w":
             # Write the OU's feature columns for CSV header,
             # with an additional separator before resource metrics columns.
-            file.write(ou.features_columns() + ",")
+            if decoupled:
+                file.write("query_id,db_id,pid,statement_timestamp,transaction_timestamp,")
+            else:
+                file.write(ou.features_columns() + ",")
 
             # Write the resource metrics columns for the CSV header.
             file.write(",".join(metric.name for metric in metrics) + "\n")
@@ -350,10 +364,14 @@ def main():
         action="store_true",
         help="Append to training data in output directory",
     )
+    parser.add_argument("--decoupled", required=False, default="0", help="Enable decoupled features, 1 or 0")
     args = parser.parse_args()
     pid = args.pid
     outdir = args.outdir
     append = args.append
+
+    global decoupled
+    decoupled = (args.decoupled != "0")
 
     postgres = PostgresInstance(pid)
 

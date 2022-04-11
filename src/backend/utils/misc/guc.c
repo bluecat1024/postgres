@@ -2111,6 +2111,15 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"tscout_feature_decoupled", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Sets whether to produce decoupled OUs in TScout."),
+		},
+		&tscout_feature_decoupled,
+		false,
+		NULL, NULL, NULL
+	},
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, false, NULL, NULL, NULL
@@ -3818,7 +3827,7 @@ static struct config_real ConfigureNamesReal[] =
 		&tscout_executor_sampling_rate,
 		1.0, 0.0, 1.0,
 		NULL, NULL, NULL
-        },
+    },
 
 	/* End-of-list marker */
 	{

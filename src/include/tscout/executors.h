@@ -10,10 +10,16 @@ static int ChildPlanNodeId(const struct Plan *const child_plan_node) {
 }
 
 #define TS_EXECUTOR_FEATURES(node_type, plan_node)                                                                 \
-  if (tscout_executor_running) {                                                                                   \
-    TS_MARKER(Exec##node_type##_features, (plan_node).plan_node_id, estate->es_plannedstmt->queryId, &(plan_node), \
+  if (tscout_executor_running) {                                                                                \
+    if (tscout_feature_decoupled) {
+      TS_MARKER(Exec##node_type##_features, (plan_node).plan_node_id, estate->es_plannedstmt->queryId,            \
+              MyDatabaseId, MyProcPid, GetCurrentStatementStartTimestamp(),                                         \
+              GetCurrentTransactionStartTimestamp());                                                             \
+    } else {                                                                                                        \
+      TS_MARKER(Exec##node_type##_features, (plan_node).plan_node_id, estate->es_plannedstmt->queryId, &(plan_node), \
               ChildPlanNodeId((plan_node).lefttree), ChildPlanNodeId((plan_node).righttree),                       \
-              GetCurrentStatementStartTimestamp());                                                                \
+              GetCurrentStatementStartTimestamp());
+    }                                                                           \                                                                \
   }
 
 #define TS_EXECUTOR_FLUSH(node_type, plan_node)                    \
