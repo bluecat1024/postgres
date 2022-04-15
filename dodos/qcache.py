@@ -13,10 +13,7 @@ def task_qcache_install():
         "actions": [
             lambda: os.chdir("cmudb/extensions/qcache/"),
             # Generate the necessary features.
-            # "sudo PYTHONPATH=../../tscout:$PYTHONPATH python3 tscout_feature_gen.py",
-            # Install the extension into the default build directory's PostgreSQL.
-            # Note that the PG_CONFIG env var can be specified to override which
-            # PostgreSQL the extension gets installed into.
+            "python3 clang_gen.py"
             "PG_CONFIG=%(pg_config)s make clean -j",
             "PG_CONFIG=%(pg_config)s make -j",
             "PG_CONFIG=%(pg_config)s make install -j",
