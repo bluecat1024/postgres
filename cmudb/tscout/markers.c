@@ -12,7 +12,7 @@ struct SUBST_OU_output {
 struct SUBST_OU_light_features {
   u64 query_id;
   u32 db_id;
-  s32 pid;
+  s32 proc_id;
   u64 statement_ts;
   u64 transaction_ts;
 };
@@ -21,7 +21,7 @@ struct SUBST_OU_light_output {
   u32 ou_index;
   u64 query_id;
   u32 db_id;
-  s32 pid;
+  s32 proc_id;
   u64 statement_ts;
   u64 transaction_ts;
   SUBST_METRICS;
@@ -42,7 +42,7 @@ BPF_ARRAY(SUBST_OU_light_features_arr, struct SUBST_OU_light_features, 1);
 static void SUBST_OU_reset(s32 ou_instance) {
   u64 key = ou_key(SUBST_INDEX, ou_instance);
   if (SUBST_feature_decoupled) {
-    SUBST_OU_complete_light_features.delete(ou_instance);
+    SUBST_OU_complete_light_features.delete(&ou_instance);
   } else {
     SUBST_OU_complete_features.delete(&ou_instance);
   }
@@ -139,7 +139,7 @@ void SUBST_OU_features(struct pt_regs *ctx) {
     bpf_usdt_readarg(1, ctx, &ou_instance);
     bpf_usdt_readarg(2, ctx, &features->query_id);
     bpf_usdt_readarg(3, ctx, &features->db_id);
-    bpf_usdt_readarg(4, ctx, &features->pid);
+    bpf_usdt_readarg(4, ctx, &features->proc_id);
     bpf_usdt_readarg(5, ctx, &features->statement_ts);
     bpf_usdt_readarg(6, ctx, &features->transaction_ts);
     SUBST_OU_complete_light_features.update(&ou_instance, features);
@@ -171,6 +171,7 @@ BPF_ARRAY(SUBST_OU_light_output_arr, struct SUBST_OU_light_output, 1);
 // A BPF perf output buffer is defined per OU because the labels being emitted are different for each OU. We can't mix
 // the structs being passed through this buffer, and since each OU is different we need unique buffer.
 BPF_PERF_OUTPUT(collector_results_SUBST_INDEX);
+BPF_PERF_OUTPUT(collector_light_results_SUBST_INDEX);
 
 void SUBST_OU_flush(struct pt_regs *ctx) {
   s32 ou_instance = 0;
@@ -196,14 +197,6 @@ void SUBST_OU_flush(struct pt_regs *ctx) {
       return;
     }
 
-    struct resource_metrics *flush_metrics = NULL;
-    flush_metrics = complete_metrics.lookup(&key);
-    if (flush_metrics == NULL) {
-      // We don't have any metrics for this data point.
-      SUBST_OU_reset(ou_instance);
-      return;
-    }
-
     // Fetch scratch output struct.
     int idx = 0;
     struct SUBST_OU_light_output *output = SUBST_OU_light_output_arr.lookup(&idx);
@@ -217,7 +210,7 @@ void SUBST_OU_flush(struct pt_regs *ctx) {
     // Copy decoupled features to output struct.
     output->query_id = features->query_id;
     output->db_id = features->db_id;
-    output->pid = features->pid;
+    output->proc_id = features->proc_id;
     output->statement_ts = features->statement_ts;
     output->transaction_ts = features->transaction_ts;
 
@@ -227,8 +220,10 @@ void SUBST_OU_flush(struct pt_regs *ctx) {
     // Set the index of this SUBST_OU so the Collector knows which Processor to send this data point to.
     output->ou_index = SUBST_INDEX;
 
+    output->pid = bpf_get_current_pid_tgid();
+
     // Send output struct to userspace via subsystem's perf ring buffer.
-    collector_results_SUBST_INDEX.perf_submit(ctx, output, sizeof(struct SUBST_OU_light_output));
+    collector_light_results_SUBST_INDEX.perf_submit(ctx, output, sizeof(struct SUBST_OU_light_output));
     SUBST_OU_reset(ou_instance);
 
     return;

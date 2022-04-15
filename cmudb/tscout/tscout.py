@@ -258,7 +258,7 @@ def collector(collector_flags, ou_processor_queues, pid, socket_fd):
             
             if decoupled:
                 event_features = ",".join([str(raw_data.query_id),
-                    str(raw_data.db_id), str(raw_data.pid),
+                    str(raw_data.db_id), str(raw_data.proc_id),
                     str(raw_data.statement_ts),
                     str(raw_data.transaction_ts)])
             else:
@@ -275,7 +275,10 @@ def collector(collector_flags, ou_processor_queues, pid, socket_fd):
 
     # Open an output buffer for this OU.
     for i in range(len(operating_units)):
-        output_buffer = f"collector_results_{i}"
+        if decoupled:
+            output_buffer = f"collector_light_results_{i}"
+        else:
+            output_buffer = f"collector_results_{i}"
         collector_bpf[output_buffer].open_perf_buffer(
             callback=collector_event_builder(output_buffer), lost_cb=lost_collector_event
         )
