@@ -27,6 +27,16 @@ static void NormalQuit(QueryDesc *query_desc);
 static void InitOids();
 static void qcache_ExecutorEnd(QueryDesc *query_desc);
 
+SUBST_FN_DECLS
+
+SUBST_EXPLAIN_NODE_ENTRY
+
+SUBST_NODE_TO_NAME
+
+static void AugmentPlan(struct Plan *plan, PlanState *ps, ExplainState *es, EState *estate);
+static void WalkPlan(struct Plan *plan, PlanState *ps, ExplainState *es, EState *estate);
+static StringInfo GetSerializedExplainOutput(QueryDesc* queryDesc);
+
 static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
 static Oid index_oid = -1;
 static Oid table_oid = -1;
@@ -129,6 +139,100 @@ static void InitOids() {
     oid_initialized = true;
 }
 
+static void AugmentPlan(struct Plan *plan, PlanState *ps, ExplainState *es, EState *estate) {
+	char nodeName[32];
+	snprintf(nodeName, sizeof(nodeName), "node-%d", plan->plan_node_id);
+
+	ExplainPropertyText("node", nodeName, es);
+	ExplainPropertyText("node_type", NodeToName((struct Node*)plan), es);
+
+	if (plan->type == T_ModifyTable) {
+		ModifyTable *modifyTable = (ModifyTable*)plan;
+		// If the current plan is a ModifyTable, then also note the number of input rows.
+		Assert(outerPlan(plan) != NULL);
+		ExplainPropertyFloat("ModifyTable_input_plan_rows", NULL, outerPlan(plan)->plan_rows, 9, es);
+		ExplainPropertyInteger("ModifyTable_input_plan_width", NULL, outerPlan(plan)->plan_width, es);
+
+		if (modifyTable->operation == CMD_INSERT || modifyTable->operation == CMD_UPDATE) {
+			// For INSERT/UPDATE, this captures the number of indexes that need to be
+			// inserted into in the worst case. For HOT Update, we might not update any
+			// indexes at all.
+			Index rti;
+			Assert(modifyTable->resultRelations != NULL);
+			rti = linitial_int(modifyTable->resultRelations);
+			ExplainInsertUpdateIndexes(rti, es, estate);
+		}
+
+		if (modifyTable->operation == CMD_UPDATE || modifyTable->operation == CMD_DELETE) {
+			// For UPDATE/DELETE, this captures the number of repeated scans that we
+			// might have had to perform. This is also an upper bound. In reality, if
+			// there's no concurrent transaction, this can be much lower.
+			double rows = IsolationUsesXactSnapshot() ? 0 : outerPlan(plan)->plan_rows;
+			ExplainPropertyFloat("ModifyTable_recheck_rows", NULL, rows, 9, es);
+		}
+	}
+
+	if (plan->type == T_LockRows) {
+		// In this case, we'll actually have to execute the entire subplan
+		// multiple times. As such, we note that repeated times == # output rows.
+		LockRows *lockRows = (LockRows*)plan;
+		double rows = IsolationUsesXactSnapshot() ? 0 : outerPlan(lockRows)->plan_rows;
+		ExplainPropertyFloat("LockRows_recheck_rows", NULL, rows, 9, es);
+	}
+}
+
+
+static void WalkPlan(struct Plan *plan, PlanState *ps, ExplainState *es, EState *estate) {
+	Assert(plan != NULL);
+	ExplainEntry((struct Node*)plan, es, estate);
+	ExplainEntry((struct Node*)ps, es, estate);
+	AugmentPlan(plan, ps, es, estate);
+
+	if (outerPlan(plan) != NULL || innerPlan(plan) != NULL) {
+		ExplainOpenGroup("Plans", "Plans", false, es);
+	}
+
+	if (outerPlan(plan) != NULL) {
+		Assert(outerPlanState(ps) != NULL);
+		ExplainOpenGroup("left-child", NULL, true, es);
+		WalkPlan(outerPlan(plan), outerPlanState(ps), es, estate);
+		ExplainCloseGroup("left-child", NULL, true, es);
+	}
+
+	if (innerPlan(plan) != NULL) {
+		Assert(innerPlanState(ps) != NULL);
+		ExplainOpenGroup("right-child", NULL, true, es);
+		WalkPlan(innerPlan(plan), innerPlanState(ps), es, estate);
+		ExplainCloseGroup("right-child", NULL, true, es);
+	}
+
+	if (outerPlan(plan) != NULL || innerPlan(plan) != NULL) {
+		ExplainCloseGroup("Plans", "Plans", false, es);
+	}
+
+	// TODO(Karthik): Handle sub-plans.
+}
+
+static StringInfo GetSerializedExplainOutput(QueryDesc* queryDesc) {
+	// Create a fake ExplainState
+	StringInfo ret;
+	ExplainState* state = NewExplainState();
+	state->analyze = true;
+	state->format = EXPLAIN_FORMAT_TSCOUT;
+	ExplainBeginOutput(state);
+
+	ExplainOpenGroup("TscoutProps", NULL, true, state);
+	ExplainOpenGroup("Tscout", "Tscout", true, state);
+	WalkPlan(queryDesc->planstate->plan, queryDesc->planstate, state, queryDesc->estate);
+	ExplainCloseGroup("Tscout", "Tscout", true, state);
+	ExplainCloseGroup("TscoutProps", NULL, true, state);
+
+	ExplainEndOutput(state);
+	ret = state->str;
+	pfree(state);
+	return ret;
+}
+
 static void qcache_ExecutorEnd(QueryDesc *query_desc) {
     Relation index_relation = NULL;
     Relation table_relation = NULL;
@@ -172,13 +276,14 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
         HeapTuple heap_tup = NULL;
         TimestampTz stmt_start_ts;
         ItemPointer tid = NULL;
+        StringInfo serialized_plan = GetSerializedExplainOutput(query_desc);
 
         elog(DEBUG1, "QCache inserting key qid: %" PRIu64, queryid);
         table_relation = table_open(table_oid, RowExclusiveLock);
 
         stmt_start_ts = GetCurrentStatementStartTimestamp();
         values[idx++] = Int64GetDatumFast(stmt_start_ts);
-        is_nulls[idx++] = true;
+        values[idx++] = CStringGetTextDatum(serialized_plan->data);
 
         elog(DEBUG1, "QCache prepare insert key qid: %" PRIu64, queryid);
         heap_tup = heap_form_tuple(table_relation->rd_att, values, is_nulls);
