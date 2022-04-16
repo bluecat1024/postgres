@@ -257,8 +257,11 @@ def collector(collector_flags, ou_processor_queues, pid, socket_fd):
             operating_unit = operating_units[raw_data.ou_index]
             
             if decoupled:
-                event_features = ",".join([str(raw_data.query_id),
-                    str(raw_data.db_id), str(raw_data.proc_id),
+                event_features = ",".join([
+                    str(raw_data.plannode_id),
+                    str(raw_data.query_id),
+                    str(raw_data.db_id),
+                    str(raw_data.proc_id),
                     str(raw_data.statement_ts),
                     str(raw_data.transaction_ts)])
             else:
@@ -323,7 +326,7 @@ def processor(ou, buffered_strings, outdir, append):
             # Write the OU's feature columns for CSV header,
             # with an additional separator before resource metrics columns.
             if decoupled:
-                file.write("query_id,db_id,pid,statement_timestamp,transaction_timestamp,")
+                file.write("plannode_id,query_id,db_id,pid,statement_timestamp,transaction_timestamp,")
             else:
                 file.write(ou.features_columns() + ",")
 

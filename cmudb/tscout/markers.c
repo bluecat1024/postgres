@@ -19,6 +19,7 @@ struct SUBST_OU_light_features {
 
 struct SUBST_OU_light_output {
   u32 ou_index;
+  s32 plannode_id;
   u64 query_id;
   u32 db_id;
   s32 proc_id;
@@ -208,6 +209,7 @@ void SUBST_OU_flush(struct pt_regs *ctx) {
     memset(output, 0, sizeof(struct SUBST_OU_light_output));
 
     // Copy decoupled features to output struct.
+    output->plannode_id = ou_instance;
     output->query_id = features->query_id;
     output->db_id = features->db_id;
     output->proc_id = features->proc_id;

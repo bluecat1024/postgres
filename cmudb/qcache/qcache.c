@@ -16,6 +16,7 @@
 #include "nodes/pg_list.h"
 #include "optimizer/planner.h"
 #include "storage/backendid.h"
+#include "tscout/executors.h"
 #include "utils/builtins.h"
 #include "utils/rel.h"
 
@@ -33,9 +34,11 @@ static void NormalQuit(QueryDesc *query_desc);
 static void InitOids();
 static void qcache_ExecutorEnd(QueryDesc *query_desc);
 
+/* The definations of plan serialization for Explain/ExecutorEnd. */
 static Oid GetScanTableOid(Index rti, EState *estate);
 static void ExplainInsertUpdateIndexes(Index rti, ExplainState *es, EState *estate);
-
+static void hutch_ExplainOneQuery(Query *query, int cursorOptions, IntoClause *into, ExplainState *es,
+								   const char *queryString, ParamListInfo params, QueryEnvironment *queryEnv);
 
 SUBST_FN_DECLS
 
@@ -48,6 +51,7 @@ static void WalkPlan(struct Plan *plan, PlanState *ps, ExplainState *es, EState 
 static StringInfo GetSerializedExplainOutput(QueryDesc* queryDesc);
 
 static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
+static ExplainOneQuery_hook_type prev_ExplainOneQuery = NULL;
 static Oid index_oid = -1;
 static Oid table_oid = -1;
 static IndexInfo *index_info = NULL;
@@ -58,10 +62,13 @@ void _PG_init(void) {
 
     prev_ExecutorEnd = ExecutorEnd_hook;
     ExecutorEnd_hook = qcache_ExecutorEnd;
+    prev_ExplainOneQuery = ExplainOneQuery_hook;
+    ExplainOneQuery_hook = hutch_ExplainOneQuery;
 }
 
 void _PG_fini(void) {
     ExecutorEnd_hook = prev_ExecutorEnd;
+    ExplainOneQuery_hook = prev_ExplainOneQuery;
     index_oid = InvalidOid;
     table_oid = InvalidOid;
 }
@@ -116,6 +123,8 @@ static bool IndexLookup(Relation index_relation, IndexTuple ind_tup) {
     return exists;
 }
 
+/* Normally call executor end hook with previous or default.
+   Used both in qcache and hutch, so as not to mess things up. */
 static void NormalQuit(QueryDesc *query_desc) {
     /* Account for previous hook. */
     if (prev_ExecutorEnd != NULL) {
@@ -181,7 +190,9 @@ static void AugmentPlan(struct Plan *plan, PlanState *ps, ExplainState *es, ESta
 	snprintf(nodeName, sizeof(nodeName), "node-%d", plan->plan_node_id);
 
 	ExplainPropertyText("node", nodeName, es);
-	ExplainPropertyText("node_type", NodeToName((struct Node*)plan), es);
+	ExplainPropertyInteger("node_id", NULL, plan->plan_node_id, es);
+    ExplainPropertyInteger("left_child_node_id", NULL, ChildPlanNodeId(plan->lefttree), es);
+    ExplainPropertyInteger("right_child_node_id", NULL, ChildPlanNodeId(plan->righttree), es);
 
 	if (plan->type == T_ModifyTable) {
 		ModifyTable *modifyTable = (ModifyTable*)plan;
@@ -351,4 +362,79 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
     }
 
     NormalQuit(query_desc);
+}
+
+static void hutch_ExplainOneQuery(Query *query, int cursorOptions, IntoClause *into, ExplainState *es,
+								   const char *queryString, ParamListInfo params, QueryEnvironment *queryEnv) {
+  PlannedStmt *plan;
+  QueryDesc *queryDesc;
+  instr_time plan_start, plan_duration;
+  int eflags = 0;
+
+  if (prev_ExplainOneQuery) {
+	prev_ExplainOneQuery(query, cursorOptions, into, es, queryString, params, queryEnv);
+  }
+
+  // Postgres does not expose an interface to call into the standard ExplainOneQuery.
+  // Hence, we duplicate the operations performed by the standard ExplainOneQuery i.e.,
+  // calling into the standard planner.
+  // A non-standard planner can be hooked in, in the the future.
+  INSTR_TIME_SET_CURRENT(plan_start);
+  plan = (planner_hook ? planner_hook(query, queryString, cursorOptions, params)
+					   : standard_planner(query, queryString, cursorOptions, params));
+
+  INSTR_TIME_SET_CURRENT(plan_duration);
+  INSTR_TIME_SUBTRACT(plan_duration, plan_start);
+
+  // We first run the standard explain code path. This is due to an adverse interaction
+  // between hutch and HypoPG.
+  //
+  // HypoPG utilizes two hooks: (1) The ProcessUtility_hook is invoked at the beginning of a
+  // utility command (e.g., EXPLAIN). The hook determines whether HypoPG is compatible
+  // with the current utility command and sets a flag. (2) ExecutorEnd_hook is used
+  // to clear the per-query state (it resets the flag set by the ProcessUtility_hook)
+  //
+  // However, in order for Hutch to generate the X's, we execute an ExecutorStart(),
+  // extract all the X's from the resulting query plan & state, and invoke ExecutorEnd().
+  //
+  // Assuming we are unable/unwilling to clone HypoPG and patch this behavior, then
+  // generating the X's will shutdown HypoPG for this query. This means that HypoPG will
+  // no longer intercept any catalog inquiries about its hypothetical indexes.
+  //
+  // This "fix" assumes that we don't depend on HypoPG interception (e.g., catalog)
+  // to generate the X's. This is because ExplainOnePlan() will also end up
+  // invoking the ExecutorEnd_hook which shuts down HypoPG. As such, we first invoke
+  // ExplainOnePlan() and then we generate the relevant X's.
+  ExplainOnePlan(plan, into, es, queryString, params, queryEnv, &plan_duration, NULL);
+
+  if (es->format == EXPLAIN_FORMAT_TSCOUT) {
+	queryDesc =
+		CreateQueryDesc(plan, queryString, InvalidSnapshot, InvalidSnapshot, None_Receiver, params, queryEnv, 0);
+
+	// If we don't do this, we can't get any useful information about the index keys
+	// that are actually used to perform the index lookup.
+	//
+	// TODO(wz2): Note that this will actually break with hypothetical indexes. I think we will probably
+	// have to bite the bullet at some point and fork hypopg if we continue to use that. Furthermore,
+	// the current hypopg implementation cannot return modifications to insert/update indexes.
+	eflags = 0;
+	if (into) eflags |= GetIntoRelEFlags(into);
+
+	// Run the executor.
+	ExecutorStart(queryDesc, eflags);
+	Assert(queryDesc->estate != NULL);
+	// This calls into initPlan() which populates the plan tree.
+	// TODO (Karthik): Create a hook to executor start.
+
+	// Finally, walks through the plan, dumping the output of the plan in a separate top-level group.
+	ExplainOpenGroup("TscoutProps", NULL, true, es);
+	ExplainOpenGroup("Tscout", "Tscout", true, es);
+	WalkPlan(queryDesc->planstate->plan, queryDesc->planstate, es, queryDesc->estate);
+	ExplainCloseGroup("Tscout", "Tscout", true, es);
+	ExplainCloseGroup("TscoutProps", NULL, true, es);
+
+	// Free the created query description resources.
+	NormalQuit(queryDesc);
+	FreeQueryDesc(queryDesc);
+  }
 }

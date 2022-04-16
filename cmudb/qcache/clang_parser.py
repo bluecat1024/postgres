@@ -13,10 +13,10 @@ import clang.cindex
 
 logger = logging.getLogger("qcache")
 
-# Expected path of this file: "postgres/cmudb/extensions/qcache"
+# Expected path of this file: "postgres/cmudb/qcache"
 
 # Path to the Postgres root.
-POSTGRES_PATH = Path(__file__).parent.parent.parent.parent
+POSTGRES_PATH = Path(__file__).parent.parent.parent
 # Path to the Postgres files to parse.
 POSTGRES_FILES = (f"{POSTGRES_PATH}/src/backend/executor/execMain.c",)
 # The arguments that Clang uses to parse header files.

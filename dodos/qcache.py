@@ -11,7 +11,7 @@ def task_qcache_install():
     """
     return {
         "actions": [
-            lambda: os.chdir("cmudb/extensions/qcache/"),
+            lambda: os.chdir("cmudb/qcache/"),
             # Generate the necessary features.
             "python3 clang_gen.py",
             "PG_CONFIG=%(pg_config)s make clean -j",
@@ -27,7 +27,7 @@ def task_qcache_install():
                 "name": "pg_config",
                 "long": "pg_config",
                 "help": "The location of the pg_config binary.",
-                "default": "../../../build/bin/pg_config",
+                "default": "../../build/bin/pg_config",
             },
         ],
     }
