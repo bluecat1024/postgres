@@ -7,13 +7,13 @@ from dodos import VERBOSITY_DEFAULT
 
 def task_qcache_install():
     """
-    Hutch: Compile and install the Hutch extension.
+    QCache: Compile and install the QCache extension.
     """
     return {
         "actions": [
             lambda: os.chdir("cmudb/extensions/qcache/"),
             # Generate the necessary features.
-            "python3 clang_gen.py"
+            "python3 clang_gen.py",
             "PG_CONFIG=%(pg_config)s make clean -j",
             "PG_CONFIG=%(pg_config)s make -j",
             "PG_CONFIG=%(pg_config)s make install -j",

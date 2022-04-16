@@ -4316,6 +4316,31 @@ ExplainPropertyList(const char *qlabel, List *data, ExplainState *es)
 	}
 }
 
+void
+ExplainPropertyOidList(const char* qlabel, List *data, ExplainState *es)
+{
+	ListCell   *lc;
+	bool		first = true;
+	Assert(es->format == EXPLAIN_FORMAT_TSCOUT);
+
+	ExplainJSONLineEnding(es);
+	appendStringInfoSpaces(es->str, es->indent * 2);
+	escape_json(es->str, qlabel);
+	appendStringInfoString(es->str, ": [");
+	foreach(lc, data)
+	{
+		char buf[32];
+		int64 value = lfirst_oid(lc);
+		snprintf(buf, sizeof(buf), INT64_FORMAT, value);
+		if (!first)
+			appendStringInfoString(es->str, ", ");
+
+		appendStringInfoString(es->str, buf);
+		first = false;
+	}
+	appendStringInfoChar(es->str, ']');
+}
+
 /*
  * Explain a property that takes the form of a list of unlabeled items within
  * another list.  "data" is a list of C strings.

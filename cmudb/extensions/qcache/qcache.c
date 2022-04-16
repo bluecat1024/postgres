@@ -5,13 +5,19 @@
 #include "access/nbtree.h"
 #include "access/heapam.h"
 #include "access/relation.h"
+#include "access/skey.h"
+#include "access/xact.h"
 #include "catalog/index.h"
 #include "catalog/namespace.h"
+#include "commands/createas.h"
 #include "commands/explain.h"
 #include "miscadmin.h"
+#include "nodes/execnodes.h"
+#include "nodes/pg_list.h"
 #include "optimizer/planner.h"
 #include "storage/backendid.h"
 #include "utils/builtins.h"
+#include "utils/rel.h"
 
 PG_MODULE_MAGIC;
 
@@ -26,6 +32,10 @@ static bool IndexLookup(Relation index_relation, IndexTuple ind_tup);
 static void NormalQuit(QueryDesc *query_desc);
 static void InitOids();
 static void qcache_ExecutorEnd(QueryDesc *query_desc);
+
+static Oid GetScanTableOid(Index rti, EState *estate);
+static void ExplainInsertUpdateIndexes(Index rti, ExplainState *es, EState *estate);
+
 
 SUBST_FN_DECLS
 
@@ -138,6 +148,33 @@ static void InitOids() {
     /* Set the flag. */
     oid_initialized = true;
 }
+
+static Oid GetScanTableOid(Index rti, EState *estate) {
+	Relation rel;
+	Assert(rti > 0 && rti <= estate->es_range_table_size);
+	rel = estate->es_relations[rti - 1];
+	if (rel == NULL) {
+		RangeTblEntry *rte = exec_rt_fetch(rti, estate);
+		Assert(rte->rtekind == RTE_RELATION);
+		return rte->relid;
+	}
+
+	return rel->rd_id;
+}
+
+static void ExplainInsertUpdateIndexes(Index rti, ExplainState *es, EState *estate) {
+	Relation rel;
+	List *oids;
+	Assert(rti > 0 && rti <= estate->es_range_table_size);
+
+	rel = ExecGetRangeTableRelation(estate, rti);
+	Assert(rel != NULL);
+	oids = RelationGetIndexList(rel);
+
+	ExplainPropertyInteger("ModifyTable_indexupdates_num", NULL, oids ? oids->length : 0, es);
+	ExplainPropertyOidList("ModifyTable_indexupdates_oids", oids, es);
+}
+
 
 static void AugmentPlan(struct Plan *plan, PlanState *ps, ExplainState *es, EState *estate) {
 	char nodeName[32];
@@ -276,14 +313,19 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
         HeapTuple heap_tup = NULL;
         TimestampTz stmt_start_ts;
         ItemPointer tid = NULL;
+        elog(DEBUG1, "QCache prepare serialized: %" PRIu64, queryid);
         StringInfo serialized_plan = GetSerializedExplainOutput(query_desc);
+        elog(DEBUG1, "QCache finished serialization: %" PRIu64, queryid);
+        char *temp_buf = (char *)palloc(serialized_plan->len + 1);
+        memcpy(temp_buf, serialized_plan->data, serialized_plan->len);
+        temp_buf[serialized_plan->len] = '\0';
 
         elog(DEBUG1, "QCache inserting key qid: %" PRIu64, queryid);
         table_relation = table_open(table_oid, RowExclusiveLock);
 
         stmt_start_ts = GetCurrentStatementStartTimestamp();
         values[idx++] = Int64GetDatumFast(stmt_start_ts);
-        values[idx++] = CStringGetTextDatum(serialized_plan->data);
+        values[idx++] = CStringGetTextDatum(temp_buf);
 
         elog(DEBUG1, "QCache prepare insert key qid: %" PRIu64, queryid);
         heap_tup = heap_form_tuple(table_relation->rd_att, values, is_nulls);
@@ -296,6 +338,7 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
         elog(DEBUG1, "QCache inserted index qid: %" PRIu64, queryid);
 
         pfree(heap_tup);
+        pfree(temp_buf);
     }
 
     /* Free all resources. */
