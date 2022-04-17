@@ -105,10 +105,18 @@ Datum pg_attribute_always_inline ExecSubPlan(SubPlanState *node,
                                              bool *isNull) {
   if (tscout_executor_running) {
     Datum result;
-    TS_MARKER(ExecSubPlan_features, node->planstate->plan->plan_node_id,
+	if (tscout_feature_decoupled) {
+		TS_MARKER(ExecSubPlan_light_features, node->planstate->plan->plan_node_id,
+			  node->planstate->state->es_plannedstmt->queryId,
+              MyDatabaseId, MyProcPid, GetCurrentStatementStartTimestamp(),
+              GetCurrentTransactionStartTimestamp());
+	} else {
+		TS_MARKER(ExecSubPlan_features, node->planstate->plan->plan_node_id,
               node->planstate->state->es_plannedstmt->queryId, node->planstate->plan,
               ChildPlanNodeId(node->planstate->plan->lefttree), ChildPlanNodeId(node->planstate->plan->righttree),
               GetCurrentStatementStartTimestamp());
+	}
+    
     TS_MARKER(ExecSubPlan_begin, node->planstate->plan->plan_node_id);
 
     result = WrappedExecSubPlan(node, econtext, isNull);
