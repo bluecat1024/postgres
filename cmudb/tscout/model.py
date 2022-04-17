@@ -693,6 +693,9 @@ class OperatingUnit:
     def features_marker(self) -> str:
         return self.name() + "_features"
 
+    def light_features_marker(self) -> str:
+        return self.name() + "_light_features"
+
     def flush_marker(self) -> str:
         return self.name() + "_flush"
 

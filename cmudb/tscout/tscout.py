@@ -209,7 +209,8 @@ def collector(collector_flags, ou_processor_queues, pid, socket_fd):
     # Attach USDT probes to the target PID.
     collector_probes = USDT(pid=pid)
     for ou in operating_units:
-        for probe in [ou.features_marker(), ou.begin_marker(), ou.end_marker(), ou.flush_marker()]:
+        for probe in [ou.features_marker(), ou.light_features_marker(),\
+            ou.begin_marker(), ou.end_marker(), ou.flush_marker()]:
             collector_probes.enable_probe(probe=probe, fn_name=probe)
 
     # Load the BPF program, eliding setting the socket fd
