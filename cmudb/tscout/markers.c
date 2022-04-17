@@ -124,28 +124,30 @@ void SUBST_OU_end(struct pt_regs *ctx) {
   running_metrics.delete(&key);
 }
 
+void SUBST_OU_light_features(struct pt_regs *ctx) {
+  // Fetch scratch features struct
+  int idx = 0;
+  struct SUBST_OU_light_features *features = SUBST_OU_light_features_arr.lookup(&idx);
+  if (features == NULL) {
+    bpf_trace_printk("Fatal error. Scratch array lookup failed.");
+    return;
+  }
+  memset(features, 0, sizeof(struct SUBST_OU_light_features));
+
+  // Store the features, waiting for BEGIN(s), END(s), and FLUSH.
+  s32 ou_instance = 0;
+  bpf_usdt_readarg(1, ctx, &ou_instance);
+  bpf_usdt_readarg(2, ctx, &features->query_id);
+  bpf_usdt_readarg(3, ctx, &features->db_id);
+  bpf_usdt_readarg(4, ctx, &features->proc_id);
+  bpf_usdt_readarg(5, ctx, &features->statement_ts);
+  bpf_usdt_readarg(6, ctx, &features->transaction_ts);
+  SUBST_OU_complete_light_features.update(&ou_instance, features);
+}
+
 void SUBST_OU_features(struct pt_regs *ctx) {
   // Fetch scratch features struct
   int idx = 0;
-  if (SUBST_feature_decoupled) {
-    struct SUBST_OU_light_features *features = SUBST_OU_light_features_arr.lookup(&idx);
-    if (features == NULL) {
-      bpf_trace_printk("Fatal error. Scratch array lookup failed.");
-      return;
-    }
-    memset(features, 0, sizeof(struct SUBST_OU_light_features));
-
-    // Store the features, waiting for BEGIN(s), END(s), and FLUSH.
-    s32 ou_instance = 0;
-    bpf_usdt_readarg(1, ctx, &ou_instance);
-    bpf_usdt_readarg(2, ctx, &features->query_id);
-    bpf_usdt_readarg(3, ctx, &features->db_id);
-    bpf_usdt_readarg(4, ctx, &features->proc_id);
-    bpf_usdt_readarg(5, ctx, &features->statement_ts);
-    bpf_usdt_readarg(6, ctx, &features->transaction_ts);
-    SUBST_OU_complete_light_features.update(&ou_instance, features);
-    return;
-  }
 
   struct SUBST_OU_features *features = SUBST_OU_features_arr.lookup(&idx);
   if (features == NULL) {

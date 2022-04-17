@@ -2,6 +2,5 @@
 # Read the guide: https://pydoit.org/tasks.html
 
 from dodos.ci import *
-from dodos.hutch import *
 from dodos.noisepage import *
 from dodos.qcache import *
