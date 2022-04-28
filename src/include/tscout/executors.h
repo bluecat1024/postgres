@@ -14,7 +14,7 @@ static int ChildPlanNodeId(const struct Plan *const child_plan_node) {
   if (tscout_executor_running) {                                                                                \
     if (tscout_feature_decoupled) {                                                                                \
       TS_MARKER(Exec##node_type##_light_features, (plan_node).plan_node_id, estate->es_plannedstmt->queryId,            \
-              MyDatabaseId, MyProcPid, GetCurrentStatementStartTimestamp(),                                         \
+              MyDatabaseId, LogicPid, GetCurrentStatementStartTimestamp(),                                         \
               GetCurrentTransactionStartTimestamp());                                                             \
     } else {                                                                                                        \
       TS_MARKER(Exec##node_type##_features, (plan_node).plan_node_id, estate->es_plannedstmt->queryId, &(plan_node), \

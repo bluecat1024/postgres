@@ -2625,6 +2625,7 @@ InitProcessGlobals(void)
 	unsigned int rseed;
 
 	MyProcPid = getpid();
+	LogicPid = MyProcPid;
 	MyStartTimestamp = GetCurrentTimestamp();
 	MyStartTime = timestamptz_to_time_t(MyStartTimestamp);
 

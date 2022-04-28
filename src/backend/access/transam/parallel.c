@@ -1317,6 +1317,7 @@ ParallelWorkerMain(Datum main_arg)
 
 	/* Arrange to signal the leader if we exit. */
 	ParallelLeaderPid = fps->parallel_leader_pid;
+	LogicPid = ParallelLeaderPid;
 	ParallelLeaderBackendId = fps->parallel_leader_backend_id;
 	on_shmem_exit(ParallelWorkerShutdown, (Datum) 0);
 

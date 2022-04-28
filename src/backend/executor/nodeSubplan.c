@@ -108,7 +108,7 @@ Datum pg_attribute_always_inline ExecSubPlan(SubPlanState *node,
 	if (tscout_feature_decoupled) {
 		TS_MARKER(ExecSubPlan_light_features, node->planstate->plan->plan_node_id,
 			  node->planstate->state->es_plannedstmt->queryId,
-              MyDatabaseId, MyProcPid, GetCurrentStatementStartTimestamp(),
+              MyDatabaseId, LogicPid, GetCurrentStatementStartTimestamp(),
               GetCurrentTransactionStartTimestamp());
 	} else {
 		TS_MARKER(ExecSubPlan_features, node->planstate->plan->plan_node_id,

@@ -315,7 +315,7 @@ static void qcache_ExecutorEnd(QueryDesc *query_desc) {
     memset(is_nulls, 0, sizeof(is_nulls));
     values[idx++] = Int64GetDatumFast(queryid);
     values[idx++] = ObjectIdGetDatum(MyDatabaseId);
-    values[idx++] = Int32GetDatum(MyProcPid);
+    values[idx++] = Int32GetDatum(LogicPid);
     ind_tup = index_form_tuple(index_relation->rd_att, values, is_nulls);
 
     elog(DEBUG1, "QCache prepare lookup: %" PRIu64, queryid);
