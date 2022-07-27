@@ -27,7 +27,7 @@ void _PG_init(void) {
 	qss_prev_ExplainOneUtility = ExplainOneUtility_hook;
 	qss_prev_get_relation_info = get_relation_info_hook;
 
-	qss_QSSClear_hook = qss_Clear;
+	qss_QSSAbort_hook = qss_Abort;
 	qss_AllocInstrumentation_hook = qss_AllocInstrumentation;
 	ExecutorEnd_hook = qss_ExecutorEnd;
 	ExecutorStart_hook = qss_ExecutorStart;
@@ -40,6 +40,8 @@ void _PG_init(void) {
 					ALLOCSET_DEFAULT_MINSIZE,
 					ALLOCSET_DEFAULT_INITSIZE,
 					ALLOCSET_DEFAULT_MAXSIZE);
+
+	RegisterXactCallback(qss_xact_callback, NULL);
 }
 
 void _PG_fini(void) {
@@ -49,5 +51,7 @@ void _PG_fini(void) {
 	ExplainOneUtility_hook = qss_prev_ExplainOneUtility;
 	get_relation_info_hook = qss_prev_get_relation_info;
 	qss_AllocInstrumentation_hook = NULL;
-	qss_QSSClear_hook = NULL;
+	qss_QSSAbort_hook = NULL;
+
+	UnregisterXactCallback(qss_xact_callback, NULL);
 }

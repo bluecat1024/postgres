@@ -4,6 +4,7 @@
 #include "postgres.h"
 #include "fmgr.h"
 
+#include "access/xact.h"
 #include "commands/explain.h"
 #include "commands/createas.h"
 #include "nodes/parsenodes.h"
@@ -15,8 +16,9 @@ extern ExplainOneUtility_hook_type qss_prev_ExplainOneUtility;
 extern ExecutorEnd_hook_type qss_prev_ExecutorEnd;
 extern ExecutorStart_hook_type qss_prev_ExecutorStart;
 extern get_relation_info_hook_type qss_prev_get_relation_info;
+extern void qss_xact_callback(XactEvent event, void* arg);
 
-void qss_Clear(void);
+void qss_Abort(void);
 void qss_ExecutorStart(QueryDesc *query_desc, int eflags);
 void qss_ExecutorEnd(QueryDesc *query_desc);
 void qss_ExplainOneQuery(Query *query, int cursorOptions, IntoClause *into, ExplainState *es, const char *queryString, ParamListInfo params, QueryEnvironment *queryEnv);

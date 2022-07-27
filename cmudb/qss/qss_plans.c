@@ -4,6 +4,7 @@
 #include "access/nbtree.h"
 #include "access/heapam.h"
 #include "access/relation.h"
+#include "access/xact.h"
 #include "catalog/namespace.h"
 #include "catalog/index.h"
 #include "cmudb/qss/qss.h"
@@ -124,7 +125,11 @@ static void WriteInstrumentation(Plan *plan, Instrumentation *instr, Relation st
 	nulls[STATS_TABLE_COMMENT_IDX] = false;
 
 	heap_tup = heap_form_tuple(stats_table_relation->rd_att, values, nulls);
-	simple_heap_insert(stats_table_relation, heap_tup);
+	do_heap_insert(stats_table_relation, heap_tup,
+				   GetCurrentTransactionId(),
+				   GetCurrentCommandId(true),
+				   HEAP_INSERT_FROZEN,
+				   NULL);
 	pfree(heap_tup);
 }
 
@@ -147,19 +152,72 @@ static void WritePlanInstrumentation(Plan *plan, PlanState *ps, Relation stats_t
 // the query that we are attempting to instrument. We do not use qss_MemoryContext
 // for allocating any of this memory.
 struct ExecutorInstrument {
+	int64 queryId;
+	char* params;
 	TimestampTz statement_ts;
+
 	List* statement_instrs;
 	struct ExecutorInstrument* prev;
 };
 
+TransactionId last_commit_xact = InvalidTransactionId;
 int nesting_level = 0;
 struct ExecutorInstrument* top = NULL;
 
-void qss_Clear() {
+void qss_Abort() {
+	if (qss_capture_abort && last_commit_xact != InvalidTransactionId) {
+		MemoryContext tmpCtx = AllocSetContextCreate(qss_MemoryContext,
+													 "qss_AbortContext",
+													 ALLOCSET_DEFAULT_SIZES);
+		MemoryContext old = MemoryContextSwitchTo(tmpCtx);
+
+		struct ExecutorInstrument *head = top;
+		Datum values[STATS_TABLE_COLUMNS];
+		bool is_nulls[STATS_TABLE_COLUMNS];
+		Oid stats_table_oid = RelnameGetRelid(STATS_TABLE_NAME);
+		Relation stats_table_relation = table_open(stats_table_oid, RowExclusiveLock);
+		while (head != NULL) {
+			HeapTuple heap_tup = NULL;
+			memset(values, 0, sizeof(values));
+			memset(is_nulls, 0, sizeof(is_nulls));
+			values[0] = Int64GetDatumFast(top->queryId);
+			values[1] = ObjectIdGetDatum(MyDatabaseId);
+			values[2] = Int32GetDatum(MyProcPid);
+			values[3] = Int64GetDatumFast(top->statement_ts);
+			values[4] = Int32GetDatum(-1);
+			values[5] = Float8GetDatum(0.0);
+			values[6] = Float8GetDatum(0.0);
+
+			is_nulls[STATS_TABLE_COMMENT_IDX] = (top->params == NULL);
+			if (top->params != NULL) {
+				values[STATS_TABLE_COMMENT_IDX] = CStringGetTextDatum(top->params);
+			}
+
+			heap_tup = heap_form_tuple(stats_table_relation->rd_att, values, is_nulls);
+			do_heap_insert(stats_table_relation, heap_tup,
+						   GetCurrentTransactionId(),
+						   GetCurrentCommandId(true),
+						   HEAP_INSERT_FROZEN,
+						   NULL);
+			pfree(heap_tup);
+			head = head->prev;
+		}
+		table_close(stats_table_relation, RowExclusiveLock);
+
+		MemoryContextSwitchTo(old);
+		MemoryContextDelete(tmpCtx);
+	}
+
 	// These should get freed by the query MemoryContext.
 	ActiveQSSInstrumentation = NULL;
 	top = NULL;
 	nesting_level = 0;
+}
+
+void qss_xact_callback(XactEvent event, void* arg) {
+	if (event == XACT_EVENT_COMMIT || event == XACT_EVENT_PARALLEL_COMMIT) {
+		last_commit_xact = GetCurrentTransactionIdIfAny();
+	}
 }
 
 Instrumentation* qss_AllocInstrumentation(EState* estate, const char *ou) {
@@ -225,6 +283,10 @@ void qss_ExecutorStart(QueryDesc *query_desc, int eflags) {
 	exec = palloc0(sizeof(struct ExecutorInstrument));
 	// TODO(wz2): This is probably not going to capture re-runs but we're on REPEATABLE_READ.
 	exec->statement_ts = GetCurrentStatementStartTimestamp();
+	exec->queryId = query_desc->plannedstmt->queryId;
+	if (query_desc->params != NULL) {
+		exec->params = BuildParamLogString(query_desc->params, NULL, -1);
+	}
 	exec->prev = top;
 	top = exec;
 
@@ -277,7 +339,7 @@ static void ProcessQueryInternalTable(QueryDesc *query_desc, bool instrument) {
 		Assert(table_relation != NULL && index_relation != NULL);
 
 		memset(is_nulls, 0, sizeof(is_nulls));
-		values[0] = Int64GetDatumFast(query_desc->plannedstmt->queryId);
+		values[0] = Int64GetDatumFast(top->queryId);
 		values[1] = Int32GetDatum(query_desc->generation);
 		values[2] = ObjectIdGetDatum(MyDatabaseId);
 		values[3] = Int32GetDatum(MyProcPid);
@@ -301,7 +363,11 @@ static void ProcessQueryInternalTable(QueryDesc *query_desc, bool instrument) {
 			values[5] = PointerGetDatum(cstring_to_text_with_len(es->str->data, es->str->len));
 
 			heap_tup = heap_form_tuple(table_relation->rd_att, values, is_nulls);
-			simple_heap_insert(table_relation, heap_tup);
+			do_heap_insert(table_relation, heap_tup,
+						   GetCurrentTransactionId(),
+						   GetCurrentCommandId(true),
+						   HEAP_INSERT_FROZEN,
+						   NULL);
 
 			/* Get new tid and add one entry to index. */
 			tid = &(heap_tup->t_self);
@@ -320,35 +386,28 @@ static void ProcessQueryInternalTable(QueryDesc *query_desc, bool instrument) {
 
 		memset(values, 0, sizeof(values));
 		memset(is_nulls, 0, sizeof(is_nulls));
-		values[0] = Int64GetDatumFast(query_desc->plannedstmt->queryId);
+		values[0] = Int64GetDatumFast(top->queryId);
 		values[1] = ObjectIdGetDatum(MyDatabaseId);
 		values[2] = Int32GetDatum(MyProcPid);
 		values[3] = Int64GetDatumFast(top->statement_ts);
 		if (query_desc->totaltime) {
 			HeapTuple heap_tup = NULL;
-			char* param_str = NULL;
 			values[4] = Int32GetDatum(-1);
 			values[5] = Float8GetDatum(query_desc->totaltime->total * 1000000.0);
+			values[6] = Float8GetDatum(1.0);
 
-			if (query_desc->params != NULL) {
-				param_str = BuildParamLogString(query_desc->params, NULL, -1);
-				if (param_str) {
-					values[STATS_TABLE_COMMENT_IDX] = CStringGetTextDatum(param_str);
-					is_nulls[STATS_TABLE_COMMENT_IDX] = false;
-				} else {
-					is_nulls[STATS_TABLE_COMMENT_IDX] = true;
-				}
-			} else {
-				is_nulls[STATS_TABLE_COMMENT_IDX] = true;
+			is_nulls[STATS_TABLE_COMMENT_IDX] = (top->params == NULL);
+			if (top->params != NULL) {
+				values[STATS_TABLE_COMMENT_IDX] = CStringGetTextDatum(top->params);
 			}
 
 			heap_tup = heap_form_tuple(stats_table_relation->rd_att, values, is_nulls);
-			simple_heap_insert(stats_table_relation, heap_tup);
+			do_heap_insert(stats_table_relation, heap_tup,
+						   GetCurrentTransactionId(),
+						   GetCurrentCommandId(true),
+						   HEAP_INSERT_FROZEN,
+						   NULL);
 			pfree(heap_tup);
-
-			if (param_str != NULL) {
-				pfree(param_str);
-			}
 		}
 
 		if (qss_capture_exec_stats && instrument) {

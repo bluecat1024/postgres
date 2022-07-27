@@ -2040,7 +2040,7 @@ ReleaseBulkInsertStatePin(BulkInsertState bistate)
 
 
 /*
- *	heap_insert		- insert tuple into a heap
+ *	do_heap_insert		- insert tuple into a heap
  *
  * The new tuple is stamped with current transaction ID and the specified
  * command ID.
@@ -2058,10 +2058,9 @@ ReleaseBulkInsertStatePin(BulkInsertState bistate)
  * reflected into *tup.
  */
 void
-heap_insert(Relation relation, HeapTuple tup, CommandId cid,
-			int options, BulkInsertState bistate)
+do_heap_insert(Relation relation, HeapTuple tup, TransactionId xid,
+			   CommandId cid, int options, BulkInsertState bistate)
 {
-	TransactionId xid = GetCurrentTransactionId();
 	HeapTuple	heaptup;
 	Buffer		buffer;
 	Buffer		vmbuffer = InvalidBuffer;
@@ -2240,6 +2239,13 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 		tup->t_self = heaptup->t_self;
 		heap_freetuple(heaptup);
 	}
+}
+
+void
+heap_insert(Relation relation, HeapTuple tup, CommandId cid,
+			int options, BulkInsertState bistate)
+{
+	do_heap_insert(relation, tup, GetCurrentTransactionId(), cid, options, bistate);
 }
 
 /*

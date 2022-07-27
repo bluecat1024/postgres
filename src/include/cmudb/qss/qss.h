@@ -9,6 +9,7 @@ extern bool qss_capture_enabled;
 extern bool qss_capture_exec_stats;
 extern bool qss_capture_nested;
 extern bool qss_output_noisepage;
+extern bool qss_capture_abort;
 
 #define PLAN_INVALID_ID (-1)
 
@@ -18,13 +19,13 @@ extern bool qss_output_noisepage;
 #define PLAN_INDEPENDENT_ID (-2)
 
 typedef Instrumentation* (*qss_AllocInstrumentation_type) (struct EState* estate, const char *ou);
-typedef void (*qss_QSSClear_type)(void);
+typedef void (*qss_QSSAbort_type)(void);
 extern PGDLLIMPORT qss_AllocInstrumentation_type qss_AllocInstrumentation_hook;
-extern PGDLLIMPORT qss_QSSClear_type qss_QSSClear_hook;
+extern PGDLLIMPORT qss_QSSAbort_type qss_QSSAbort_hook;
 extern PGDLLIMPORT Instrumentation* ActiveQSSInstrumentation;
 
 Instrumentation* AllocQSSInstrumentation(EState* estate, const char *ou);
-void QSSClear(void);
+void QSSAbort(void);
 
 #define QSSInstrumentAddCounter(node, i, val)                                                       \
 	do {                                                                                            \

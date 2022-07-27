@@ -4,9 +4,10 @@ bool qss_capture_enabled = false;
 bool qss_capture_exec_stats = false;
 bool qss_capture_nested = false;
 bool qss_output_noisepage = false;
+bool qss_capture_abort = false;
 
 qss_AllocInstrumentation_type qss_AllocInstrumentation_hook = NULL;
-qss_QSSClear_type qss_QSSClear_hook = NULL;
+qss_QSSAbort_type qss_QSSAbort_hook = NULL;
 Instrumentation* ActiveQSSInstrumentation = NULL;
 
 Instrumentation* AllocQSSInstrumentation(EState* estate, const char *ou) {
@@ -17,9 +18,9 @@ Instrumentation* AllocQSSInstrumentation(EState* estate, const char *ou) {
 	return NULL;
 }
 
-void QSSClear() {
-	if (qss_QSSClear_hook) {
-		qss_QSSClear_hook();
+void QSSAbort() {
+	if (qss_QSSAbort_hook) {
+		qss_QSSAbort_hook();
 	}
 
 	ActiveQSSInstrumentation = NULL;

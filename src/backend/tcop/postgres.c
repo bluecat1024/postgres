@@ -4235,6 +4235,9 @@ PostgresMain(int argc, char *argv[],
 		 */
 		debug_query_string = NULL;
 
+		/* We still need the memory context in the case that we want to output aborts */
+		QSSAbort();
+
 		/*
 		 * Abort the current transaction in order to recover.
 		 */
@@ -4242,9 +4245,6 @@ PostgresMain(int argc, char *argv[],
 
 		if (am_walsender)
 			WalSndErrorCleanup();
-
-		/* Need to reset all QSS instrumentation tracking */
-		QSSClear();
 
 		PortalErrorCleanup();
 		SPICleanup();
