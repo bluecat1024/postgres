@@ -2652,6 +2652,7 @@ ExecModifyTable(PlanState *pstate)
 								  node->canSetTag);
 				break;
 			case CMD_DELETE:
+				QSSInstrumentAddCounter(&(node->ps), 5, 1);
 				slot = ExecDelete(node, resultRelInfo, tupleid, oldtuple,
 								  planSlot, &node->mt_epqstate, estate,
 								  true, /* processReturning */

@@ -47,12 +47,20 @@
 	counter8 float8,
 	counter9 float8,
 	payload bigint,
+	txn bigint,
 	comment text
  )
+
+ In the logged data, if the plan_node_id == -1, then we have a "query invocation message".
+ counter0 in this case is repurposed to be an indicator if it executed or hit an ABORT.
+ QueryId is guaranteed to be nonzero in this case.
+
+ If queryId == 0, then it is guaranteed that comment is "TxnAbort".  txn indicates the
+ transaction ID that aborted.
  */
 #define STATS_TABLE_NAME "pg_qss_stats"
-#define STATS_TABLE_COLUMNS 18
-#define STATS_TABLE_COMMENT_IDX 17
+#define STATS_TABLE_COLUMNS 19
+#define STATS_TABLE_COMMENT_IDX 18
 
 static bool IndexLookup(Snapshot snapshot, Relation heap_relation, Relation index_relation, IndexTuple itup) {
 	bool unique = false;
@@ -102,6 +110,7 @@ static void WriteInstrumentation(Plan *plan, Instrumentation *instr, Relation st
 	values[14] = Float8GetDatum(instr->counter8);
 	values[15] = Float8GetDatum(instr->counter9);
 	values[16] = Int64GetDatum(instr->payload);
+	values[17] = TransactionIdGetDatum(GetCurrentTransactionId());
 
 	if (plan) {
 		if (plan->type == T_ModifyTable) {
@@ -187,6 +196,7 @@ void qss_Abort() {
 			values[4] = Int32GetDatum(-1);
 			values[5] = Float8GetDatum(0.0);
 			values[6] = Float8GetDatum(0.0);
+			values[17] = TransactionIdGetDatum(GetCurrentTransactionId());
 
 			is_nulls[STATS_TABLE_COMMENT_IDX] = (top->params == NULL);
 			if (top->params != NULL) {
@@ -202,6 +212,32 @@ void qss_Abort() {
 			pfree(heap_tup);
 			head = head->prev;
 		}
+
+		// Need to generically log the fact that the particular transaction has aborted.
+		{
+			HeapTuple heap_tup = NULL;
+			memset(values, 0, sizeof(values));
+			memset(is_nulls, 0, sizeof(is_nulls));
+			values[0] = Int64GetDatumFast(0);
+			values[1] = ObjectIdGetDatum(MyDatabaseId);
+			values[2] = Int32GetDatum(MyProcPid);
+			values[3] = Int64GetDatumFast(GetCurrentStatementStartTimestamp());
+			values[4] = Int32GetDatum(-1);
+			values[5] = Float8GetDatum(0.0);
+			values[17] = TransactionIdGetDatum(GetCurrentTransactionId());
+
+			is_nulls[STATS_TABLE_COMMENT_IDX] = false;
+			values[STATS_TABLE_COMMENT_IDX] = CStringGetTextDatum("TxnAbort");
+
+			heap_tup = heap_form_tuple(stats_table_relation->rd_att, values, is_nulls);
+			do_heap_insert(stats_table_relation, heap_tup,
+						   GetCurrentTransactionId(),
+						   GetCurrentCommandId(true),
+						   HEAP_INSERT_FROZEN,
+						   NULL);
+
+		}
+
 		table_close(stats_table_relation, RowExclusiveLock);
 
 		MemoryContextSwitchTo(old);
@@ -217,6 +253,8 @@ void qss_Abort() {
 void qss_xact_callback(XactEvent event, void* arg) {
 	if (event == XACT_EVENT_COMMIT || event == XACT_EVENT_PARALLEL_COMMIT) {
 		last_commit_xact = GetCurrentTransactionIdIfAny();
+	} else if (event == XACT_EVENT_PRE_ABORT) {
+		qss_Abort();
 	}
 }
 
@@ -395,6 +433,7 @@ static void ProcessQueryInternalTable(QueryDesc *query_desc, bool instrument) {
 			values[4] = Int32GetDatum(-1);
 			values[5] = Float8GetDatum(query_desc->totaltime->total * 1000000.0);
 			values[6] = Float8GetDatum(1.0);
+			values[17] = TransactionIdGetDatum(GetCurrentTransactionId());
 
 			is_nulls[STATS_TABLE_COMMENT_IDX] = (top->params == NULL);
 			if (top->params != NULL) {
