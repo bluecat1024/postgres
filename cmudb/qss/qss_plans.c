@@ -444,6 +444,8 @@ static void ProcessQueryExplain(QueryDesc *query_desc, bool instrument) {
 	ExplainQueryText(es, query_desc);
 	ExplainPropertyInteger("start_time", NULL, top->statement_ts, es);
 	ExplainPropertyFloat("elapsed_us", NULL, query_desc->totaltime->total * 1000000.0, 9, es);
+	ExplainPropertyInteger("query_id", NULL, top->queryId, es);
+	ExplainPropertyInteger("txn_id", NULL, GetCurrentTransactionId(), es);
 	ExplainPrintPlan(es, query_desc);
 	if (es->analyze)
 		ExplainPrintTriggers(es, query_desc);
