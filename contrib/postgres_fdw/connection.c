@@ -835,6 +835,10 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 	HASH_SEQ_STATUS scan;
 	ConnCacheEntry *entry;
 
+	if (event == XACT_EVENT_PRE_ABORT) {
+		return;
+	}
+
 	/* Quick exit if no connections were touched in this transaction. */
 	if (!xact_got_connection)
 		return;
@@ -862,6 +866,9 @@ pgfdw_xact_callback(XactEvent event, void *arg)
 
 			switch (event)
 			{
+				case XACT_EVENT_PRE_ABORT:
+					Assert(false);
+					break;
 				case XACT_EVENT_PARALLEL_PRE_COMMIT:
 				case XACT_EVENT_PRE_COMMIT:
 

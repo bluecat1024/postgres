@@ -42,6 +42,7 @@
 #include "catalog/pg_type.h"
 #include "commands/async.h"
 #include "commands/prepare.h"
+#include "cmudb/qss/qss.h"
 #include "executor/spi.h"
 #include "jit/jit.h"
 #include "libpq/libpq.h"
@@ -4233,6 +4234,9 @@ PostgresMain(int argc, char *argv[],
 		 * the storage it points at.
 		 */
 		debug_query_string = NULL;
+
+		/* We still need the memory context in the case that we want to output aborts */
+		QSSAbort();
 
 		/*
 		 * Abort the current transaction in order to recover.

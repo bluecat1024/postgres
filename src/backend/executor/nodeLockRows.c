@@ -23,6 +23,7 @@
 
 #include "access/tableam.h"
 #include "access/xact.h"
+#include "cmudb/qss/qss.h"
 #include "executor/executor.h"
 #include "executor/nodeLockRows.h"
 #include "foreign/fdwapi.h"
@@ -85,6 +86,9 @@ lnext:
 		int			lockflags = 0;
 		TM_Result	test;
 		TupleTableSlot *markSlot;
+
+		/* count the number of marks */
+		QSSInstrumentAddCounter(pstate, 0, 1);
 
 		/* clear any leftover test tuple for this rel */
 		markSlot = EvalPlanQualSlot(&node->lr_epqstate, erm->relation, erm->rti);
@@ -184,11 +188,13 @@ lnext:
 		if (!IsolationUsesXactSnapshot())
 			lockflags |= TUPLE_LOCK_FLAG_FIND_LAST_VERSION;
 
+		ActiveQSSInstrumentation = pstate->instrument;
 		test = table_tuple_lock(erm->relation, &tid, estate->es_snapshot,
 								markSlot, estate->es_output_cid,
 								lockmode, erm->waitPolicy,
 								lockflags,
 								&tmfd);
+		ActiveQSSInstrumentation = NULL;
 
 		switch (test)
 		{
@@ -258,6 +264,8 @@ lnext:
 	 */
 	if (epq_needed)
 	{
+		QSSInstrumentAddCounter(&(node->ps), 1, 1);
+
 		/* Initialize EPQ machinery */
 		EvalPlanQualBegin(&node->lr_epqstate);
 

@@ -122,8 +122,6 @@ WrappedExecWorkTableScan(PlanState *pstate)
 					(ExecScanRecheckMtd) WorkTableScanRecheck);
 }
 
-TS_EXECUTOR_WRAPPER(WorkTableScan)
-
 /* ----------------------------------------------------------------
  *		ExecInitWorkTableScan
  * ----------------------------------------------------------------

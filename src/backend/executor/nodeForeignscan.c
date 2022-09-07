@@ -128,8 +128,6 @@ WrappedExecForeignScan(PlanState *pstate)
 					(ExecScanRecheckMtd) ForeignRecheck);
 }
 
-TS_EXECUTOR_WRAPPER(ForeignScan)
-
 /* ----------------------------------------------------------------
  *		ExecInitForeignScan
  * ----------------------------------------------------------------

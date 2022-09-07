@@ -111,6 +111,7 @@
 #include "access/tableam.h"
 #include "access/xact.h"
 #include "catalog/index.h"
+#include "cmudb/qss/qss.h"
 #include "executor/executor.h"
 #include "nodes/nodeFuncs.h"
 #include "storage/lmgr.h"
@@ -343,6 +344,14 @@ ExecInsertIndexTuples(ResultRelInfo *resultRelInfo,
 		if (!indexInfo->ii_ReadyForInserts)
 			continue;
 
+		if (qss_capture_exec_stats) {
+			ActiveQSSInstrumentation = AllocQSSInstrumentation(estate, "ModifyTableIndexInsert");
+			if (ActiveQSSInstrumentation) {
+				ActiveQSSInstrumentation->payload = (int64_t)indexRelation->rd_id;
+				InstrStartNode(ActiveQSSInstrumentation);
+			}
+		}
+
 		/* Check for partial index */
 		if (indexInfo->ii_Predicate != NIL)
 		{
@@ -360,8 +369,13 @@ ExecInsertIndexTuples(ResultRelInfo *resultRelInfo,
 			}
 
 			/* Skip this index-update if the predicate isn't satisfied */
-			if (!ExecQual(predicate, econtext))
+			if (!ExecQual(predicate, econtext)) {
+				if (ActiveQSSInstrumentation) {
+					InstrStopNode(ActiveQSSInstrumentation, 0.0);
+					ActiveQSSInstrumentation = NULL;
+				}
 				continue;
+			}
 		}
 
 		/*
@@ -479,8 +493,15 @@ ExecInsertIndexTuples(ResultRelInfo *resultRelInfo,
 			if (indexRelation->rd_index->indimmediate && specConflict)
 				*specConflict = true;
 		}
+
+		if (ActiveQSSInstrumentation) {
+			InstrStopNode(ActiveQSSInstrumentation, 0.0);
+			InstrEndLoop(ActiveQSSInstrumentation);
+			ActiveQSSInstrumentation = NULL;
+		}
 	}
 
+	Assert(ActiveQSSInstrumentation == NULL);
 	return result;
 }
 

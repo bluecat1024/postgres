@@ -28,6 +28,7 @@
 #include "access/transam.h"
 #include "access/xlog.h"
 #include "access/xloginsert.h"
+#include "cmudb/qss/qss.h"
 #include "miscadmin.h"
 #include "storage/indexfsm.h"
 #include "storage/lmgr.h"
@@ -916,6 +917,7 @@ _bt_getbuf(Relation rel, BlockNumber blkno, int access)
 			if (blkno == InvalidBlockNumber)
 				break;
 			buf = ReadBuffer(rel, blkno);
+			ActiveQSSInstrumentAddCounter(0, 1);
 			if (_bt_conditionallockbuf(rel, buf))
 			{
 				page = BufferGetPage(buf);
@@ -973,6 +975,8 @@ _bt_getbuf(Relation rel, BlockNumber blkno, int access)
 
 		if (needLock)
 			LockRelationForExtension(rel, ExclusiveLock);
+
+		ActiveQSSInstrumentAddCounter(1, 1);
 
 		buf = ReadBuffer(rel, P_NEW);
 

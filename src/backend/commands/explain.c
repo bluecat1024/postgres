@@ -44,6 +44,9 @@
 /* Hook for plugins to get control in ExplainOneQuery() */
 ExplainOneQuery_hook_type ExplainOneQuery_hook = NULL;
 
+/* Hook for plugins to get control in ExplainOneUtility() */
+ExplainOneUtility_hook_type ExplainOneUtility_hook = NULL;
+
 /* Hook for plugins to get control in explain_get_index_name() */
 explain_get_index_name_hook_type explain_get_index_name_hook = NULL;
 
@@ -54,10 +57,6 @@ explain_get_index_name_hook_type explain_get_index_name_hook = NULL;
 #define X_CLOSE_IMMEDIATE 2
 #define X_NOWHITESPACE 4
 
-static void ExplainOneQuery(Query *query, int cursorOptions,
-							IntoClause *into, ExplainState *es,
-							const char *queryString, ParamListInfo params,
-							QueryEnvironment *queryEnv);
 static void ExplainPrintJIT(ExplainState *es, int jit_flags,
 							JitInstrumentation *ji);
 static void report_triggers(ResultRelInfo *rInfo, bool show_relname,
@@ -208,8 +207,8 @@ ExplainQuery(ParseState *pstate, ExplainStmt *stmt,
 				es->format = EXPLAIN_FORMAT_TEXT;
 			else if (strcmp(p, "xml") == 0)
 				es->format = EXPLAIN_FORMAT_XML;
-			else if (strcmp(p, "tscout") == 0)
-				es->format = EXPLAIN_FORMAT_TSCOUT;
+			else if (strcmp(p, "noisepage") == 0)
+				es->format = EXPLAIN_FORMAT_NOISEPAGE;
 			else if (strcmp(p, "json") == 0)
 				es->format = EXPLAIN_FORMAT_JSON;
 			else if (strcmp(p, "yaml") == 0)
@@ -365,7 +364,7 @@ ExplainResultDesc(ExplainStmt *stmt)
  *
  * "into" is NULL unless we are explaining the contents of a CreateTableAsStmt.
  */
-static void
+void
 ExplainOneQuery(Query *query, int cursorOptions,
 				IntoClause *into, ExplainState *es,
 				const char *queryString, ParamListInfo params,
@@ -374,8 +373,11 @@ ExplainOneQuery(Query *query, int cursorOptions,
 	/* planner will not cope with utility statements */
 	if (query->commandType == CMD_UTILITY)
 	{
-		ExplainOneUtility(query->utilityStmt, into, es, queryString, params,
-						  queryEnv);
+		if (ExplainOneUtility_hook)
+			(*ExplainOneUtility_hook) (query->utilityStmt, into, es, queryString, params, queryEnv);
+		else
+			ExplainOneUtility(query->utilityStmt, into, es, queryString, params, queryEnv);
+
 		return;
 	}
 
@@ -565,7 +567,7 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 		dest = None_Receiver;
 
 	/* Create a QueryDesc for the query */
-	queryDesc = CreateQueryDesc(plannedstmt, queryString,
+	queryDesc = CreateQueryDesc(plannedstmt, queryString, 0,
 								GetActiveSnapshot(), InvalidSnapshot,
 								dest, params, queryEnv, instrument_option);
 
@@ -4284,7 +4286,7 @@ ExplainPropertyList(const char *qlabel, List *data, ExplainState *es)
 			ExplainXMLTag(qlabel, X_CLOSING, es);
 			break;
 
-		case EXPLAIN_FORMAT_TSCOUT:
+		case EXPLAIN_FORMAT_NOISEPAGE:
 			// fall through to JSON
 
 		case EXPLAIN_FORMAT_JSON:
@@ -4321,7 +4323,7 @@ ExplainPropertyOidList(const char* qlabel, List *data, ExplainState *es)
 {
 	ListCell   *lc;
 	bool		first = true;
-	Assert(es->format == EXPLAIN_FORMAT_TSCOUT);
+	Assert(es->format == EXPLAIN_FORMAT_NOISEPAGE);
 
 	ExplainJSONLineEnding(es);
 	appendStringInfoSpaces(es->str, es->indent * 2);
@@ -4358,9 +4360,9 @@ ExplainPropertyListNested(const char *qlabel, List *data, ExplainState *es)
 			ExplainPropertyList(qlabel, data, es);
 			return;
 
-		case EXPLAIN_FORMAT_TSCOUT:
+		case EXPLAIN_FORMAT_NOISEPAGE:
 			// fall through to JSON
-		
+
 		case EXPLAIN_FORMAT_JSON:
 			ExplainJSONLineEnding(es);
 			appendStringInfoSpaces(es->str, es->indent * 2);
@@ -4429,9 +4431,9 @@ ExplainProperty(const char *qlabel, const char *unit, const char *value,
 			}
 			break;
 
-		case EXPLAIN_FORMAT_TSCOUT:
+		case EXPLAIN_FORMAT_NOISEPAGE:
 			// fall through to JSON
-		
+
 		case EXPLAIN_FORMAT_JSON:
 			ExplainJSONLineEnding(es);
 			appendStringInfoSpaces(es->str, es->indent * 2);
@@ -4537,9 +4539,9 @@ ExplainOpenGroup(const char *objtype, const char *labelname,
 			es->indent++;
 			break;
 
-		case EXPLAIN_FORMAT_TSCOUT:
+		case EXPLAIN_FORMAT_NOISEPAGE:
 			// fall through to JSON
-		
+
 		case EXPLAIN_FORMAT_JSON:
 			ExplainJSONLineEnding(es);
 			appendStringInfoSpaces(es->str, 2 * es->indent);
@@ -4603,9 +4605,9 @@ ExplainCloseGroup(const char *objtype, const char *labelname,
 			ExplainXMLTag(objtype, X_CLOSING, es);
 			break;
 
-		case EXPLAIN_FORMAT_TSCOUT:
+		case EXPLAIN_FORMAT_NOISEPAGE:
 			// fall through to JSON
-		
+
 		case EXPLAIN_FORMAT_JSON:
 			es->indent--;
 			appendStringInfoChar(es->str, '\n');
@@ -4652,9 +4654,9 @@ ExplainOpenSetAsideGroup(const char *objtype, const char *labelname,
 			es->indent += depth;
 			break;
 
-		case EXPLAIN_FORMAT_TSCOUT:
+		case EXPLAIN_FORMAT_NOISEPAGE:
 			// fall through to JSON
-		
+
 		case EXPLAIN_FORMAT_JSON:
 			es->grouping_stack = lcons_int(0, es->grouping_stack);
 			es->indent += depth;
@@ -4693,9 +4695,9 @@ ExplainSaveGroup(ExplainState *es, int depth, int *state_save)
 			es->indent -= depth;
 			break;
 
-		case EXPLAIN_FORMAT_TSCOUT:
+		case EXPLAIN_FORMAT_NOISEPAGE:
 			// fall through to JSON
-		
+
 		case EXPLAIN_FORMAT_JSON:
 			es->indent -= depth;
 			*state_save = linitial_int(es->grouping_stack);
@@ -4726,9 +4728,9 @@ ExplainRestoreGroup(ExplainState *es, int depth, int *state_save)
 			es->indent += depth;
 			break;
 
-		case EXPLAIN_FORMAT_TSCOUT:
+		case EXPLAIN_FORMAT_NOISEPAGE:
 			// fall through to JSON
-		
+
 		case EXPLAIN_FORMAT_JSON:
 			es->grouping_stack = lcons_int(*state_save, es->grouping_stack);
 			es->indent += depth;
@@ -4760,9 +4762,9 @@ ExplainDummyGroup(const char *objtype, const char *labelname, ExplainState *es)
 			ExplainXMLTag(objtype, X_CLOSE_IMMEDIATE, es);
 			break;
 
-		case EXPLAIN_FORMAT_TSCOUT:
+		case EXPLAIN_FORMAT_NOISEPAGE:
 			// fall through to JSON
-		
+
 		case EXPLAIN_FORMAT_JSON:
 			ExplainJSONLineEnding(es);
 			appendStringInfoSpaces(es->str, 2 * es->indent);
@@ -4811,9 +4813,9 @@ ExplainBeginOutput(ExplainState *es)
 			es->indent++;
 			break;
 
-		case EXPLAIN_FORMAT_TSCOUT:
+		case EXPLAIN_FORMAT_NOISEPAGE:
 			// fall through to JSON
-		
+
 		case EXPLAIN_FORMAT_JSON:
 			/* top-level structure is an array of plans */
 			appendStringInfoChar(es->str, '[');
@@ -4844,9 +4846,9 @@ ExplainEndOutput(ExplainState *es)
 			appendStringInfoString(es->str, "</explain>");
 			break;
 
-		case EXPLAIN_FORMAT_TSCOUT:
+		case EXPLAIN_FORMAT_NOISEPAGE:
 			// fall through to JSON
-		
+
 		case EXPLAIN_FORMAT_JSON:
 			es->indent--;
 			appendStringInfoString(es->str, "\n]");
@@ -4873,7 +4875,7 @@ ExplainSeparatePlans(ExplainState *es)
 			break;
 
 		case EXPLAIN_FORMAT_XML:
-		case EXPLAIN_FORMAT_TSCOUT:
+		case EXPLAIN_FORMAT_NOISEPAGE:
 		case EXPLAIN_FORMAT_JSON:
 		case EXPLAIN_FORMAT_YAML:
 			/* nothing to do */
@@ -4937,7 +4939,7 @@ ExplainIndentText(ExplainState *es)
 static void
 ExplainJSONLineEnding(ExplainState *es)
 {
-	Assert(es->format == EXPLAIN_FORMAT_JSON || es->format == EXPLAIN_FORMAT_TSCOUT);
+	Assert(es->format == EXPLAIN_FORMAT_JSON || es->format == EXPLAIN_FORMAT_NOISEPAGE);
 	if (linitial_int(es->grouping_stack) != 0)
 		appendStringInfoChar(es->str, ',');
 	else

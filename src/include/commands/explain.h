@@ -22,7 +22,7 @@ typedef enum ExplainFormat
 	EXPLAIN_FORMAT_TEXT,
 	EXPLAIN_FORMAT_XML,
 	EXPLAIN_FORMAT_JSON,
-	EXPLAIN_FORMAT_TSCOUT,
+	EXPLAIN_FORMAT_NOISEPAGE,
 	EXPLAIN_FORMAT_YAML
 } ExplainFormat;
 
@@ -72,6 +72,14 @@ typedef void (*ExplainOneQuery_hook_type) (Query *query,
 										   QueryEnvironment *queryEnv);
 extern PGDLLIMPORT ExplainOneQuery_hook_type ExplainOneQuery_hook;
 
+void ExplainOneQuery(Query *query,
+					 int cursorOptions,
+					 IntoClause *into,
+					 ExplainState *es,
+					 const char *queryString,
+					 ParamListInfo params,
+					 QueryEnvironment *queryEnv);
+
 /* Hook for plugins to get control in explain_get_index_name() */
 typedef const char *(*explain_get_index_name_hook_type) (Oid indexId);
 extern PGDLLIMPORT explain_get_index_name_hook_type explain_get_index_name_hook;
@@ -83,6 +91,15 @@ extern void ExplainQuery(ParseState *pstate, ExplainStmt *stmt,
 extern ExplainState *NewExplainState(void);
 
 extern TupleDesc ExplainResultDesc(ExplainStmt *stmt);
+
+/* Hook for plugins to get control in ExplainOneUtility() */
+typedef void (*ExplainOneUtility_hook_type) (Node *utilityStmt,
+											 IntoClause *into,
+											 ExplainState *es,
+											 const char *queryString,
+											 ParamListInfo params,
+											 QueryEnvironment *queryEnv);
+extern PGDLLIMPORT ExplainOneUtility_hook_type ExplainOneUtility_hook;
 
 extern void ExplainOneUtility(Node *utilityStmt, IntoClause *into,
 							  ExplainState *es, const char *queryString,

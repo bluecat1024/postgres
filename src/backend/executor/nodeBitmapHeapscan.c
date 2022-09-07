@@ -41,6 +41,7 @@
 #include "access/tableam.h"
 #include "access/transam.h"
 #include "access/visibilitymap.h"
+#include "cmudb/qss/qss.h"
 #include "executor/execdebug.h"
 #include "executor/nodeBitmapHeapscan.h"
 #include "miscadmin.h"
@@ -238,6 +239,11 @@ BitmapHeapNext(BitmapHeapScanState *node)
 				/* AM doesn't think this block is valid, skip */
 				continue;
 			}
+			else
+			{
+				// This is the case where we fetched a block successfully.
+				QSSInstrumentAddCounter(&(node->ss.ps), 0, 1);
+			}
 
 			if (tbmres->ntuples >= 0)
 				node->exact_pages++;
@@ -293,6 +299,7 @@ BitmapHeapNext(BitmapHeapScanState *node)
 			 * If we don't have to fetch the tuple, just return nulls.
 			 */
 			ExecStoreAllNullTuple(slot);
+			QSSInstrumentAddCounter(&(node->ss.ps), 1, 1);
 
 			if (--node->return_empty_tuples == 0)
 			{
@@ -311,6 +318,8 @@ BitmapHeapNext(BitmapHeapScanState *node)
 				node->tbmres = tbmres = NULL;
 				continue;
 			}
+
+			QSSInstrumentAddCounter(&(node->ss.ps), 2, 1);
 
 			/*
 			 * If we are using lossy info, we have to recheck the qual
@@ -504,8 +513,10 @@ BitmapPrefetch(BitmapHeapScanState *node, TableScanDesc scan)
 											 tbmpre->blockno,
 											 &node->pvmbuffer));
 
-				if (!skip_fetch)
+				if (!skip_fetch) {
+					QSSInstrumentAddCounter(&(node->ss.ps), 3, 1);
 					PrefetchBuffer(scan->rs_rd, MAIN_FORKNUM, tbmpre->blockno);
+				}
 			}
 		}
 

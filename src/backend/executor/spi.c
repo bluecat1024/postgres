@@ -21,6 +21,7 @@
 #include "catalog/heap.h"
 #include "catalog/pg_type.h"
 #include "commands/trigger.h"
+#include "cmudb/qss/qss.h"
 #include "executor/executor.h"
 #include "executor/spi_priv.h"
 #include "miscadmin.h"
@@ -2007,7 +2008,7 @@ SPI_plan_get_cached_plan(SPIPlanPtr plan)
  *		of current SPI procedure
  */
 void
-spi_dest_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
+spi_dest_startup(DestReceiver *self, int operation, TupleDesc typeinfo, uint64_t queryId, void *es)
 {
 	SPITupleTable *tuptable;
 	MemoryContext oldcxt;
@@ -2525,6 +2526,7 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 
 				qdesc = CreateQueryDesc(stmt,
 										plansource->query_string,
+										cplan->generation,
 										snap, crosscheck_snapshot,
 										dest,
 										paramLI, _SPI_current->queryEnv,
@@ -2756,7 +2758,6 @@ _SPI_pquery(QueryDesc *queryDesc, bool fire_triggers, uint64 tcount)
 		eflags = EXEC_FLAG_SKIP_TRIGGERS;
 
 	ExecutorStart(queryDesc, eflags);
-
 	ExecutorRun(queryDesc, ForwardScanDirection, tcount, true);
 
 	_SPI_current->processed = queryDesc->estate->es_processed;

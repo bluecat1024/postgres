@@ -51,6 +51,7 @@
 #include "commands/vacuum.h"
 #include "commands/variable.h"
 #include "common/string.h"
+#include "cmudb/qss/qss.h"
 #include "funcapi.h"
 #include "jit/jit.h"
 #include "libpq/auth.h"
@@ -2112,10 +2113,46 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"tscout_feature_decoupled", PGC_USERSET, DEVELOPER_OPTIONS,
-			gettext_noop("Sets whether to produce decoupled OUs in TScout."),
+		{"qss_capture_enabled", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Sets whether to capture anything with QSS."),
 		},
-		&tscout_feature_decoupled,
+		&qss_capture_enabled,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"qss_capture_nested", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Sets whether to capture nested queries with QSS."),
+		},
+		&qss_capture_nested,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"qss_capture_exec_stats", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Sets whether to collect execution statistics with QSS."),
+		},
+		&qss_capture_exec_stats,
+		false,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"qss_output_noisepage", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Sets whether to collect query runtime with QSS."),
+		},
+		&qss_output_noisepage,
+		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"qss_capture_abort", PGC_USERSET, DEVELOPER_OPTIONS,
+			gettext_noop("Sets whether to capture aborts with QSS."),
+		},
+		&qss_capture_abort,
 		false,
 		NULL, NULL, NULL
 	},

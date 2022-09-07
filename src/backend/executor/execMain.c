@@ -348,7 +348,7 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 				  queryDesc->plannedstmt->hasReturning);
 
 	if (sendTuples)
-		dest->rStartup(dest, operation, queryDesc->tupDesc);
+		dest->rStartup(dest, operation, queryDesc->tupDesc, queryDesc->plannedstmt->queryId, estate);
 
 	/*
 	 * run plan
@@ -1215,7 +1215,7 @@ InitResultRelInfo(ResultRelInfo *resultRelInfo,
 		resultRelInfo->ri_TrigWhenExprs = (ExprState **)
 			palloc0(n * sizeof(ExprState *));
 		if (instrument_options)
-			resultRelInfo->ri_TrigInstrument = InstrAlloc(n, instrument_options, false);
+			resultRelInfo->ri_TrigInstrument = InstrAlloc(n, instrument_options, false, 0);
 	}
 	else
 	{

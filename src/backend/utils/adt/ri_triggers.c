@@ -33,6 +33,7 @@
 #include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
 #include "commands/trigger.h"
+#include "cmudb/qss/qss.h"
 #include "executor/executor.h"
 #include "executor/spi.h"
 #include "lib/ilist.h"
@@ -407,7 +408,6 @@ RI_FKey_check(TriggerData *trigdata)
 		elog(ERROR, "SPI_finish failed");
 
 	table_close(pk_rel, RowShareLock);
-
 	return PointerGetDatum(NULL);
 }
 

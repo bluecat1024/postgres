@@ -72,6 +72,7 @@
  */
 #include "postgres.h"
 
+#include "cmudb/qss/qss.h"
 #include "executor/executor.h"
 #include "executor/nodeAgg.h"
 #include "executor/nodeAppend.h"
@@ -406,9 +407,19 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 	result->initPlan = subps;
 
 	/* Set up instrumentation for this node if requested */
-	if (estate->es_instrument)
+	if (estate->es_instrument) {
 		result->instrument = InstrAlloc(1, estate->es_instrument,
-										result->async_capable);
+										result->async_capable,
+										nodeTag(node));
+
+		if (nodeTag(node) == T_IndexScan) {
+			result->instrument->payload = ((IndexScan *)node)->indexid;
+		}
+
+		if (nodeTag(node) == T_IndexOnlyScan) {
+			result->instrument->payload = ((IndexOnlyScan *)node)->indexid;
+		}
+	}
 
 	return result;
 }

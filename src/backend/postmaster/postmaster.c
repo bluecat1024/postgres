@@ -137,10 +137,6 @@
 #include "storage/spin.h"
 #endif
 
-#include "tscout/marker.h"
-
-TS_DEFINE_SEMAPHORE(fork_backend);
-
 /*
  * Possible types of a backend. Beyond being the possible bkend_type values in
  * struct bkend, these are OR-able request flag bits for SignalSomeChildren()

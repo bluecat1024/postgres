@@ -33,6 +33,7 @@
 #include "access/relscan.h"
 #include "access/tableam.h"
 #include "catalog/pg_am.h"
+#include "cmudb/qss/qss.h"
 #include "executor/execdebug.h"
 #include "executor/nodeIndexscan.h"
 #include "lib/pairingheap.h"
@@ -131,8 +132,12 @@ IndexNext(IndexScanState *node)
 	/*
 	 * ok, now that we have what we need, fetch the next tuple.
 	 */
+	ActiveQSSInstrumentation = node->ss.ps.instrument;
 	while (index_getnext_slot(scandesc, direction, slot))
 	{
+		QSSInstrumentAddCounter(node, 0, 1);
+		QSSInstrumentAddCounter(node, 1, 1);
+
 		CHECK_FOR_INTERRUPTS();
 
 		/*
@@ -150,8 +155,10 @@ IndexNext(IndexScanState *node)
 			}
 		}
 
+		ActiveQSSInstrumentation = NULL;
 		return slot;
 	}
+	ActiveQSSInstrumentation = NULL;
 
 	/*
 	 * if we get here it means the index scan failed so we are at the end of
@@ -556,6 +563,8 @@ TS_EXECUTOR_WRAPPER(IndexScan)
 void
 ExecReScanIndexScan(IndexScanState *node)
 {
+	QSSInstrumentAddCounter(node, 2, 1);
+
 	/*
 	 * If we are doing runtime key calculations (ie, any of the index key
 	 * values weren't simple Consts), compute the new key values.  But first,

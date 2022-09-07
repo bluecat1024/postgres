@@ -35,6 +35,7 @@
 #include "access/tableam.h"
 #include "access/tupdesc.h"
 #include "access/visibilitymap.h"
+#include "cmudb/qss/qss.h"
 #include "executor/execdebug.h"
 #include "executor/nodeIndexonlyscan.h"
 #include "executor/nodeIndexscan.h"
@@ -122,6 +123,7 @@ IndexOnlyNext(IndexOnlyScanState *node)
 	while ((tid = index_getnext_tid(scandesc, direction)) != NULL)
 	{
 		bool		tuple_from_heap = false;
+		QSSInstrumentAddCounter(node, 0, 1);
 
 		CHECK_FOR_INTERRUPTS();
 
@@ -167,6 +169,7 @@ IndexOnlyNext(IndexOnlyScanState *node)
 			 * Rats, we have to visit the heap to check visibility.
 			 */
 			InstrCountTuples2(node, 1);
+			QSSInstrumentAddCounter(node, 1, 1);
 			if (!index_fetch_heap(scandesc, node->ioss_TableSlot))
 				continue;		/* no visible tuple, try next index entry */
 

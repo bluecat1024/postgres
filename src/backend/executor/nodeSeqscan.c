@@ -115,8 +115,6 @@ WrappedExecSeqScan(PlanState *pstate)
 					(ExecScanRecheckMtd) SeqRecheck);
 }
 
-TS_EXECUTOR_WRAPPER(SeqScan)
-
 /* ----------------------------------------------------------------
  *		ExecInitSeqScan
  * ----------------------------------------------------------------

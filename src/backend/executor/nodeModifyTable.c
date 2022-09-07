@@ -38,6 +38,7 @@
 #include "access/tableam.h"
 #include "access/xact.h"
 #include "catalog/catalog.h"
+#include "cmudb/qss/qss.h"
 #include "commands/trigger.h"
 #include "executor/execPartition.h"
 #include "executor/executor.h"
@@ -646,6 +647,7 @@ ExecInsert(ModifyTableState *mtstate,
 	if (resultRelInfo->ri_TrigDesc &&
 		resultRelInfo->ri_TrigDesc->trig_insert_before_row)
 	{
+		QSSInstrumentAddCounter(&(mtstate->ps), 0, 1);
 		if (!ExecBRInsertTriggers(estate, resultRelInfo, slot))
 			return NULL;		/* "do nothing" */
 	}
@@ -654,6 +656,7 @@ ExecInsert(ModifyTableState *mtstate,
 	if (resultRelInfo->ri_TrigDesc &&
 		resultRelInfo->ri_TrigDesc->trig_insert_instead_row)
 	{
+		QSSInstrumentAddCounter(&(mtstate->ps), 0, 1);
 		if (!ExecIRInsertTriggers(estate, resultRelInfo, slot))
 			return NULL;		/* "do nothing" */
 	}
@@ -822,6 +825,7 @@ ExecInsert(ModifyTableState *mtstate,
 			List	   *arbiterIndexes;
 
 			arbiterIndexes = resultRelInfo->ri_onConflictArbiterIndexes;
+			QSSInstrumentAddCounter(&(mtstate->ps), 1, 1);
 
 			/*
 			 * Do a non-conclusive check for conflicts first.
@@ -932,15 +936,33 @@ ExecInsert(ModifyTableState *mtstate,
 		else
 		{
 			/* insert the tuple normally */
+			ActiveQSSInstrumentation = mtstate->ps.instrument;
 			table_tuple_insert(resultRelationDesc, slot,
 							   estate->es_output_cid,
 							   0, NULL);
+			ActiveQSSInstrumentation = NULL;
 
 			/* insert index entries for tuple */
-			if (resultRelInfo->ri_NumIndices > 0)
+			if (resultRelInfo->ri_NumIndices > 0) {
+				if (qss_capture_exec_stats) {
+					if (mtstate->ps.plan->plan_node_id != 0) {
+						elog(ERROR, "Unsupported non-root ModifyTable instrumentation of index insert");
+					}
+
+					if (mtstate->ps.instrument) {
+							InstrStopNode(mtstate->ps.instrument, 0.0);
+					}
+
+				}
+
 				recheckIndexes = ExecInsertIndexTuples(resultRelInfo,
-													   slot, estate, false,
-													   false, NULL, NIL);
+									slot, estate, false,
+									false, NULL, NIL);
+
+				if (qss_capture_exec_stats && mtstate->ps.instrument) {
+					InstrStartNode(mtstate->ps.instrument);
+				}
+			}
 		}
 	}
 
@@ -1106,6 +1128,7 @@ ExecDelete(ModifyTableState *mtstate,
 		resultRelInfo->ri_TrigDesc->trig_delete_before_row)
 	{
 		bool		dodelete;
+		QSSInstrumentAddCounter(&(mtstate->ps), 0, 1);
 
 		dodelete = ExecBRDeleteTriggers(estate, epqstate, resultRelInfo,
 										tupleid, oldtuple, epqreturnslot);
@@ -1119,6 +1142,7 @@ ExecDelete(ModifyTableState *mtstate,
 		resultRelInfo->ri_TrigDesc->trig_delete_instead_row)
 	{
 		bool		dodelete;
+		QSSInstrumentAddCounter(&(mtstate->ps), 0, 1);
 
 		Assert(oldtuple != NULL);
 		dodelete = ExecIRDeleteTriggers(estate, resultRelInfo, oldtuple);
@@ -1164,6 +1188,7 @@ ExecDelete(ModifyTableState *mtstate,
 		 * mode transactions.
 		 */
 ldelete:;
+		ActiveQSSInstrumentation = mtstate->ps.instrument;
 		result = table_tuple_delete(resultRelationDesc, tupleid,
 									estate->es_output_cid,
 									estate->es_snapshot,
@@ -1171,6 +1196,7 @@ ldelete:;
 									true /* wait for commit */ ,
 									&tmfd,
 									changingPart);
+		ActiveQSSInstrumentation = NULL;
 
 		switch (result)
 		{
@@ -1221,6 +1247,8 @@ ldelete:;
 						ereport(ERROR,
 								(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 								 errmsg("could not serialize access due to concurrent update")));
+
+					QSSInstrumentAddCounter(&(mtstate->ps), 1, 1);
 
 					/*
 					 * Already know that we're going to need to do EPQ, so
@@ -1373,6 +1401,7 @@ ldelete:;
 		 * gotta fetch it.  We can use the trigger tuple slot.
 		 */
 		TupleTableSlot *rslot;
+		QSSInstrumentAddCounter(&(mtstate->ps), 2, 1);
 
 		if (resultRelInfo->ri_FdwRoutine)
 		{
@@ -1634,6 +1663,7 @@ ExecUpdate(ModifyTableState *mtstate,
 	if (resultRelInfo->ri_TrigDesc &&
 		resultRelInfo->ri_TrigDesc->trig_update_before_row)
 	{
+		QSSInstrumentAddCounter(&(mtstate->ps), 0, 1);
 		if (!ExecBRUpdateTriggers(estate, epqstate, resultRelInfo,
 								  tupleid, oldtuple, slot))
 			return NULL;		/* "do nothing" */
@@ -1643,6 +1673,7 @@ ExecUpdate(ModifyTableState *mtstate,
 	if (resultRelInfo->ri_TrigDesc &&
 		resultRelInfo->ri_TrigDesc->trig_update_instead_row)
 	{
+		QSSInstrumentAddCounter(&(mtstate->ps), 0, 1);
 		if (!ExecIRUpdateTriggers(estate, resultRelInfo,
 								  oldtuple, slot))
 			return NULL;		/* "do nothing" */
@@ -1785,12 +1816,14 @@ lreplace:;
 		 * needed for referential integrity updates in transaction-snapshot
 		 * mode transactions.
 		 */
+		ActiveQSSInstrumentation = mtstate->ps.instrument;
 		result = table_tuple_update(resultRelationDesc, tupleid, slot,
 									estate->es_output_cid,
 									estate->es_snapshot,
 									estate->es_crosscheck_snapshot,
 									true /* wait for commit */ ,
 									&tmfd, &lockmode, &update_indexes);
+		ActiveQSSInstrumentation = NULL;
 
 		switch (result)
 		{
@@ -1841,6 +1874,8 @@ lreplace:;
 						ereport(ERROR,
 								(errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 								 errmsg("could not serialize access due to concurrent update")));
+
+					QSSInstrumentAddCounter(&(mtstate->ps), 0, 1);
 
 					/*
 					 * Already know that we're going to need to do EPQ, so
@@ -1933,10 +1968,27 @@ lreplace:;
 		}
 
 		/* insert index entries for tuple if necessary */
-		if (resultRelInfo->ri_NumIndices > 0 && update_indexes)
+		if (resultRelInfo->ri_NumIndices > 0 && update_indexes) {
+			if (qss_capture_exec_stats) {
+				if (mtstate->ps.plan->plan_node_id != 0) {
+					elog(ERROR, "Unsupported non-root ModifyTable instrumentation of index insert");
+				}
+
+				if (mtstate->ps.instrument) {
+					InstrStopNode(mtstate->ps.instrument, 0.0);
+				}
+
+				QSSInstrumentAddCounter(&(mtstate->ps), 1, 1);
+			}
+
 			recheckIndexes = ExecInsertIndexTuples(resultRelInfo,
 												   slot, estate, true, false,
 												   NULL, NIL);
+
+			if (qss_capture_exec_stats && mtstate->ps.instrument) {
+				InstrStartNode(mtstate->ps.instrument);
+			}
+		}
 	}
 
 	if (canSetTag)
@@ -2228,6 +2280,9 @@ fireASTriggers(ModifyTableState *node)
 {
 	ModifyTable *plan = (ModifyTable *) node->ps.plan;
 	ResultRelInfo *resultRelInfo = node->rootResultRelInfo;
+	TriggerDesc *trigdesc = resultRelInfo->ri_TrigDesc;
+	if (trigdesc && (trigdesc->trig_insert_after_statement || trigdesc->trig_delete_after_statement || trigdesc->trig_update_after_statement))
+		QSSInstrumentAddCounter(&(node->ps), 0, 1);
 
 	switch (node->operation)
 	{
@@ -2592,11 +2647,13 @@ WrappedExecModifyTable(PlanState *pstate)
 											 oldSlot);
 
 				/* Now apply the update. */
+				QSSInstrumentAddCounter(&(node->ps), 8, 1);
 				slot = ExecUpdate(node, resultRelInfo, tupleid, oldtuple, slot,
 								  planSlot, &node->mt_epqstate, estate,
 								  node->canSetTag);
 				break;
 			case CMD_DELETE:
+				QSSInstrumentAddCounter(&(node->ps), 5, 1);
 				slot = ExecDelete(node, resultRelInfo, tupleid, oldtuple,
 								  planSlot, &node->mt_epqstate, estate,
 								  true, /* processReturning */
