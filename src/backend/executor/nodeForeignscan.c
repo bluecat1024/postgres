@@ -119,7 +119,7 @@ ForeignRecheck(ForeignScanState *node, TupleTableSlot *slot)
  * ----------------------------------------------------------------
  */
 static pg_attribute_always_inline TupleTableSlot *
-WrappedExecForeignScan(PlanState *pstate)
+ExecForeignScan(PlanState *pstate)
 {
 	ForeignScanState *node = castNode(ForeignScanState, pstate);
 
