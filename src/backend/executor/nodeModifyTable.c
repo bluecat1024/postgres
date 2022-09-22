@@ -1974,9 +1974,9 @@ lreplace:;
 					elog(ERROR, "Unsupported non-root ModifyTable instrumentation of index insert");
 				}
 
-				if (mtstate->ps.instrument) {
-					InstrStopNode(mtstate->ps.instrument, 0.0);
-				}
+				// if (mtstate->ps.instrument) {
+				// 	InstrStopNode(mtstate->ps.instrument, 0.0);
+				// }
 
 				QSSInstrumentAddCounter(&(mtstate->ps), 1, 1);
 			}
@@ -1985,9 +1985,9 @@ lreplace:;
 												   slot, estate, true, false,
 												   NULL, NIL);
 
-			if (qss_capture_exec_stats && mtstate->ps.instrument) {
-				InstrStartNode(mtstate->ps.instrument);
-			}
+			// if (qss_capture_exec_stats && mtstate->ps.instrument) {
+			// 	InstrStartNode(mtstate->ps.instrument);
+			// }
 		}
 	}
 
