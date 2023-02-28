@@ -66,6 +66,7 @@ db721_GetForeignPlan(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid,
   exec_state->filename = fdw_state->filename;
   exec_state->rows = fdw_state->rows;
   exec_state->block_size = fdw_state->block_size;
+  exec_state->early_out = fdw_state->early_out;
   // Move forward the target list.
   exec_state->target_attr_sorted = fdw_state->target_attr_sorted;
   std::set<int> used_attr;
@@ -122,8 +123,16 @@ extern "C" void db721_BeginForeignScan(ForeignScanState *node, int eflags) {
   // elog(LOG, "db721_BeginForeignScan");
   Db721ExecState *exec_state = ((Db721ExecState *)((ForeignScan *)node
     ->ss.ps.plan)->fdw_private);
-  exec_state->InitScan();
   node->fdw_state = exec_state;
+  if (exec_state->early_out) {
+    return;
+  }
+  // Corner case: set slot to empty if tuple width 0.
+  TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
+  if (exec_state->target_attr_sorted == NIL) {
+    slot->tts_tupleDescriptor->natts = 0;
+  }
+  exec_state->InitScan();
 }
 
 extern "C" TupleTableSlot *db721_IterateForeignScan(ForeignScanState *node) {
@@ -132,8 +141,9 @@ extern "C" TupleTableSlot *db721_IterateForeignScan(ForeignScanState *node) {
 
   Db721ExecState *exec_state = (Db721ExecState *)node->fdw_state;
   TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
-
-  TupleDesc desc = slot->tts_tupleDescriptor;
+  if (exec_state->early_out) {
+    return NULL;
+  }
 
   ExecClearTuple(slot);
   TupleTableSlot *ret_slot = exec_state->IterateScan(slot);
@@ -144,6 +154,9 @@ extern "C" TupleTableSlot *db721_IterateForeignScan(ForeignScanState *node) {
 extern "C" void db721_ReScanForeignScan(ForeignScanState *node) {
   // TODO(721): Write me!
   Db721ExecState *exec_state = (Db721ExecState *)node->fdw_state;
+  if (exec_state->early_out) {
+    return;
+  }
   exec_state->ResetScan();
 }
 
@@ -151,5 +164,8 @@ extern "C" void db721_EndForeignScan(ForeignScanState *node) {
   // TODO(721): Write me!
   // Release all file descriptors.
   Db721ExecState *exec_state = (Db721ExecState *)node->fdw_state;
+  if (exec_state->early_out) {
+    return;
+  }
   exec_state->EndScan();
 }

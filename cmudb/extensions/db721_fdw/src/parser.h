@@ -231,9 +231,10 @@ void FetchColumnMeta(TupleDesc tupledesc,
     List *tlist = build_physical_tlist(root, baserel);
 
     fdw_state->natts = tupledesc->natts;
+    bool rows_calculated = false;
     for (int i = 0; i < tupledesc->natts; ++i) {
         // Skip when column not used.
-        if (used_attrs_set.find(i) == used_attrs_set.end()) {
+        if (rows_calculated && used_attrs_set.find(i) == used_attrs_set.end()) {
             fdw_state->column_metadata = lappend(
                 fdw_state->column_metadata, NULL
             );
@@ -290,9 +291,28 @@ void FetchColumnMeta(TupleDesc tupledesc,
         }
 
         fdw_state->rows = total_rows;
+        rows_calculated = true;
         fdw_state->column_metadata =
             lappend(fdw_state->column_metadata, fdw_column);
     }
+
+    // Try early-out data. If non passes, no need to scan.
+    bool early_out = true;
+    int num_blk = (fdw_state->rows + fdw_state->block_size - 1)
+                / fdw_state->block_size;
+    for (int i = 0; i < num_blk; ++i) {
+        bool block_valid = true;
+        for (int attr : pred_attrs_set) {
+            ColumnMetaData *colmeta = (ColumnMetaData *)list_nth(
+                fdw_state->column_metadata, attr
+            );
+            block_valid = (block_valid && colmeta->block_mask[i]);
+        }
+        if (block_valid) {
+            early_out = false;
+        }
+    }
+    fdw_state->early_out = early_out;
 
     // Now do the push down per qual.
     // Not pushable ones go to remain_quals.

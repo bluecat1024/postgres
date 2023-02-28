@@ -164,6 +164,7 @@ typedef struct Db721PlanState {
     int natts;
     int block_size;
     List *column_metadata;
+    bool early_out;
 } Db721PlanState;
 
 typedef struct ColumnExecData {
@@ -257,6 +258,8 @@ typedef struct ColumnExecData {
                 return CStringGetTextDatum(
                     (char *)((char *)mat_buffer + curridx * width)
                 );
+            default:
+                return 0;
         }
     }
 } ColumnExecData;
@@ -275,6 +278,7 @@ typedef struct Db721ExecState {
     // To check whether reaching the end.
     int global_curr_idx;
     ColumnExecData *column_execdata;
+    bool early_out; // No need to open any file.
 
     void InitScan() {
         ListCell *lc;
@@ -372,6 +376,7 @@ typedef struct Db721ExecState {
                         this->curr_idx
                     );
                 }
+                // elog(LOG, "Slot filled %d", curr_idx);
                 ExecStoreVirtualTuple(slot);
 
                 ++this->global_curr_idx;
