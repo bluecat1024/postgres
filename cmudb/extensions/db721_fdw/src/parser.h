@@ -57,7 +57,6 @@ void GetTabOpt(Oid relid, Db721PlanState *fdw_state) {
         DefElem    *def = (DefElem *) lfirst(lc);
         if (strcmp(def->defname, "filename") == 0) {
             fdw_state->filename = defGetString(def);
-            elog(LOG, "filename, %s", defGetString(def));
         }
     }
 }
@@ -103,33 +102,20 @@ List *MakeStatQual(
 			InvalidOid, false, (Expr *) v, (Expr *) min_c,
 			InvalidOid, v->varcollid);
     } else {
-        elog(LOG, "attno: %d", v->varattno);
+        // elog(LOG, "attno: %d", v->varattno);
         const char *maxv = stat["max"].GetString();
         const char *minv = stat["min"].GetString();
-        elog(LOG, "fetching max min %s %s", maxv, minv);
+        // elog(LOG, "fetching max min %s %s", maxv, minv);
         Const *max_c = makeConst(25, -1,
             100, -1, CStringGetTextDatum(maxv),
             0, 0);
         Const *min_c = makeConst(25, -1,
             100, -1, CStringGetTextDatum(minv),
             0, 0);
-        // elog(LOG, "Const built");
 
         // For string, there is one layer of type cast.
-        elog(LOG, "make: left var: %d %d %d %d %d %d %d %d %d", v->varattno,
-            v->varcollid, v->vartype, v->vartypmod,
-            v->location, v->varattnosyn, v->varlevelsup,
-            v->varno, v->varnosyn);
-        elog(LOG, "make: const: %d %d %d %d %d %d %d",
-            max_c->constbyval, max_c->constcollid,
-            max_c->constisnull, max_c->constlen,
-            max_c->consttype, max_c->consttypmod,
-            max_c->location);
         RelabelType *cast_v = makeRelabelType((Expr *)v, 25,
             -1, 100, COERCE_IMPLICIT_CAST);
-        elog(LOG, "make : Relabel: %d %d %d %d", cast_v->relabelformat,
-            cast_v->resultcollid, cast_v->resulttype,
-            cast_v->resulttypmod);
 
         // elog(LOG, "Var built");
 
@@ -158,33 +144,7 @@ bool PushDownQual(Expr *clause,
     }
     Expr *lf = (Expr *) linitial(expr->args);
     Expr *rf = (Expr *) lsecond(expr->args);
-    if (expr->opno == kPgTextEqual) {
-        elog(LOG, "left nodetype: %d, right nodetype: %d",
-            nodeTag((Node *)lf), nodeTag((Node *)rf));
-        elog(LOG, "left child nodetype: %d",
-            nodeTag((Node *)(((RelabelType *)lf)->arg)));
-        elog(LOG, "Relabel %d %d %d %d %d", ((RelabelType *)lf)->resulttype,
-            ((RelabelType *)lf)->resulttypmod, ((RelabelType *)lf)->resultcollid,
-            ((RelabelType *)lf)->relabelformat);
-        Var *v = (Var *)((RelabelType *)lf)->arg;
-        elog(LOG, "left var: %d %d %d %d %d %d %d %d %d", v->varattno,
-            v->varcollid, v->vartype, v->vartypmod,
-            v->location, v->varattnosyn, v->varlevelsup,
-            v->varno, v->varnosyn);
-        Const *max_c = (Const *)rf;
-        elog(LOG, "const: %d %d %d %d %d %d %d",
-            max_c->constbyval, max_c->constcollid,
-            max_c->constisnull, max_c->constlen,
-            max_c->consttype, max_c->consttypmod,
-            max_c->location);
-        RelabelType *relab = (RelabelType *)lf;
-        elog(LOG, "Relabel: %d %d %d %d", relab->relabelformat,
-            relab->resultcollid, relab->resulttype,
-            relab->resulttypmod);
-        // elog(LOG, "left is V: %d, left is O: %d, right is C: %d, right is E-V: %d",
-        // IsA(lf, Var), IsA(lf, OpExpr),
-        // IsA(rf, Const), IsA(rf, OpExpr) && IsA(linitial(((OpExpr *)rf)->args), Const));
-    }
+
     bool lisvar = (IsA(lf, Var) || (IsA(lf, RelabelType)
         && IsA(((RelabelType *)lf)->arg, Var)));
     bool risvar = (IsA(rf, Var) || (IsA(rf, RelabelType)
@@ -207,7 +167,7 @@ bool PushDownQual(Expr *clause,
     if (IsA(v, RelabelType)) {
         v = (Var *)((RelabelType *)v)->arg;
     }
-    elog(LOG, "Mapping opcode %d", opno);
+    // elog(LOG, "Mapping opcode %d", opno);
 
     PushedQual *pq = (PushedQual *)palloc0(sizeof(PushedQual));
     pq->opcode = map_op_code(opno);
@@ -215,23 +175,18 @@ bool PushDownQual(Expr *clause,
         return false;
     }
 
-    elog(LOG, "Fetch col %d", v->varattno - 1);
-    elog(LOG, "list addr %ld", (long long)fdw_state->column_metadata);
+    // elog(LOG, "Fetch col %d", v->varattno - 1);
     ColumnMetaData *colmeta = (ColumnMetaData *)list_nth(
         fdw_state->column_metadata, v->varattno - 1);
-    elog(LOG, "Fetched col %d", v->varattno - 1);
     int type = colmeta->type;
     if (type == kTypeReal) {
-        // elog(LOG, "Get double const");
         pq->constreal = DatumGetFloat8(c->constvalue);
-        // elog(LOG, "Get double const %lf", pq->constreal);
     } else if (type == kTypeInt) {
         pq->constint = DatumGetInt32(c->constvalue);
     } else {
         strcpy(pq->conststr, TextDatumGetCString(c->constvalue));
-        elog(LOG, "Str const: %s", pq->conststr);
+        // elog(LOG, "Str const: %s", pq->conststr);
     }
-    elog(LOG, "Push complete.", v->varattno - 1);
     colmeta->pushed_quals = lappend(colmeta->pushed_quals, pq);
 
     // bms_add_member(fdw_state->pred_attr, v->varattno);
@@ -245,12 +200,12 @@ void FetchColumnMeta(TupleDesc tupledesc,
     PlannerInfo *root,
     RelOptInfo *baserel,
     Db721PlanState *fdw_state) {
-    elog(LOG, "Parse step 1");
+    // elog(LOG, "Parse step 1");
     fdw_state->block_size =
         doc["Max Values Per Block"].GetInt();
     // Create columns based on order.
     auto &column_meta = doc["Columns"];
-    elog(LOG, "Parse step 2");
+    // elog(LOG, "Parse step 2");
 
     // Pull pred attrs into pred_attr.
     ListCell *lc;
@@ -261,6 +216,7 @@ void FetchColumnMeta(TupleDesc tupledesc,
     // Only visit column meta for used columns.
     std::unordered_set<int> used_attrs_set;
     std::unordered_set<int> pred_attrs_set;
+    std::unordered_set<int> target_attrs_set;
     int attr = -1;
     while ((attr = bms_next_member(fdw_state->pred_attr, attr)) >= 0) {
         pred_attrs_set.insert(attr - 8);
@@ -269,6 +225,7 @@ void FetchColumnMeta(TupleDesc tupledesc,
     attr = -1;
     while ((attr = bms_next_member(fdw_state->target_attr, attr)) >= 0) {
         used_attrs_set.insert(attr - 8);
+        target_attrs_set.insert(attr - 8);
     }
 
     List *tlist = build_physical_tlist(root, baserel);
@@ -292,13 +249,13 @@ void FetchColumnMeta(TupleDesc tupledesc,
 
         auto &cb_data = column_meta[colname];
         int nblock = cb_data["num_blocks"].GetInt();
-        elog(LOG, "Parse step 3");
+        // elog(LOG, "Parse step 3");
         ColumnMetaData *fdw_column =
             (ColumnMetaData *)palloc0(sizeof(ColumnMetaData));
         fdw_column->block_mask = (bool *)palloc0(sizeof(bool) * nblock);
         fdw_column->begin_offset = cb_data["start_offset"].GetInt();
         std::string dtype = cb_data["type"].GetString();
-        elog(LOG, "Parse step 4");
+        // elog(LOG, "Parse step 4");
         // Only int, float and str.
         if (dtype == "float") {
             fdw_column->type = kTypeReal;
@@ -316,9 +273,7 @@ void FetchColumnMeta(TupleDesc tupledesc,
         auto &block_stats = cb_data["block_stats"];
         int total_rows = 0;
         Var *v = (Var *)((TargetEntry *)list_nth(tlist, i))->expr;
-        elog(LOG, "attno in parser: %d %d %d %d", v->varattno,
-            v->vartype, v->vartypmod, v->varcollid);
-        elog(LOG, "Parse step 5");
+        // elog(LOG, "Parse step 5");
         for (int block_i = 0; block_i < nblock; ++block_i) {
             auto &stat = block_stats[std::to_string(block_i).c_str()];
             total_rows += stat["num"].GetInt();
@@ -326,14 +281,12 @@ void FetchColumnMeta(TupleDesc tupledesc,
             if (pred_attrs_set.find(i) == pred_attrs_set.end()) {
                 continue;
             }
-            elog(LOG, "column %s making maxmin qual", colname); 
             List *stat_qual = MakeStatQual(v, stat, dtype);
-            elog(LOG, "column %s refuting qual", colname); 
+            // elog(LOG, "column %s refuting qual", colname); 
             if (!predicate_refuted_by(stat_qual, quals, false)) {
-                elog(LOG, "Column %s block %d passes", colname, block_i);
+                // elog(LOG, "Column %s block %d passes", colname, block_i);
                 fdw_column->block_mask[block_i] = true;
             }
-            elog(LOG, "column %s refuted qual done, moving to next", colname);
         }
 
         fdw_state->rows = total_rows;
@@ -343,15 +296,48 @@ void FetchColumnMeta(TupleDesc tupledesc,
 
     // Now do the push down per qual.
     // Not pushable ones go to remain_quals.
-    elog(LOG, "Parse step 6");
+    // elog(LOG, "Parse step 6");
     foreach(lc, quals) {
         Expr *clause = (Expr *)lfirst(lc);
         if (!PushDownQual(clause, fdw_state)) {
             fdw_state->remain_quals =
                 lappend(fdw_state->remain_quals, clause);
+            pull_varattnos((Node *)clause, baserel->relid,
+                &fdw_state->nonpush_attr);
         }
-        elog(LOG, "Parse step 7");
+        // elog(LOG, "Parse step 7");
     }
+
+    // Last step: build the target list in order.
+    // rel->target + not-pushable quals.
+    // Append attno in sequential way.
+    List *new_tlist = make_tlist_from_pathtarget(baserel->reltarget);
+    foreach (lc, new_tlist) {
+        TargetEntry *te = (TargetEntry *)lfirst(lc);
+        Var *v = (Var *)(te->expr);
+        fdw_state->target_attr_sorted =
+            lappend_int(fdw_state->target_attr_sorted, v->varattno - 1);
+        // elog(LOG, "tlist attno: %d", v->varattno);
+    }
+
+    attr = -1;
+    while ((attr = bms_next_member(fdw_state->nonpush_attr, attr)) >= 0) {
+        if (target_attrs_set.find(attr - 1) == target_attrs_set.end()) {
+            Expr *v = (Expr *)((TargetEntry *)
+                list_nth(tlist, attr - 1))->expr;
+            // elog(LOG, "Add non push");
+            new_tlist = lappend(
+                new_tlist,
+                makeTargetEntry(v, new_tlist->length + 1, NULL, false)
+            );
+
+            fdw_state->target_attr_sorted =
+                lappend_int(fdw_state->target_attr_sorted, attr - 1);
+        }
+    }
+
+    // Add to fdw_state.
+    fdw_state->new_tlist = new_tlist;
 }
 
 Db721PlanState *CreatePlanState(PlannerInfo *root, RelOptInfo *baserel, Oid relid) {

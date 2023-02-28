@@ -24,24 +24,17 @@ extern "C" {
 extern "C" void db721_GetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel,
                                       Oid foreigntableid) {
   // TODO(721): Write me!
-  Dog terrier("Terrier");
-  elog(LOG, "db721_GetForeignRelSize: %s", terrier.Bark().c_str());
+  // Dog terrier("Terrier");
+  // elog(LOG, "db721_GetForeignRelSize: %s", terrier.Bark().c_str());
   setlocale(LC_COLLATE, "en_US.UTF-8");
-  // List *tlist = build_physical_tlist(root, baserel);
-  // ListCell *lc;
-  // foreach(lc, tlist) {
-  //   TargetEntry *te = (TargetEntry *)lfirst(lc);
-  //   Var *v = (Var *)(te->expr);
-  //   elog(LOG, "tlist attno: %d %d %d %d", v->varattno, v->vartype, v->vartypmod, v->varcollid);
-  // }
   baserel->fdw_private = CreatePlanState(root, baserel, foreigntableid);
 }
 
 extern "C" void db721_GetForeignPaths(PlannerInfo *root, RelOptInfo *baserel,
                                     Oid foreigntableid) {
   // TODO(721): Write me!
-  Dog scout("Scout");
-  elog(LOG, "db721_GetForeignPaths: %s", scout.Bark().c_str());
+  // Dog scout("Scout");
+  // elog(LOG, "db721_GetForeignPaths: %s", scout.Bark().c_str());
 
   Cost startup = baserel->baserestrictcost.startup;
   Cost totalcost = startup + baserel->rows * cpu_tuple_cost;
@@ -64,38 +57,32 @@ db721_GetForeignPlan(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid,
                    ForeignPath *best_path, List *tlist, List *scan_clauses,
                    Plan *outer_plan) {
   // TODO(721): Write me!
-  Dog scout("Scout");
-  elog(LOG, "db721_GetForeignPlan: %s", scout.Bark().c_str());
-  // ListCell *lc;
-  // foreach (lc, tlist) {
-  //   TargetEntry *te = (TargetEntry *)lfirst(lc);
-  //   Var *v = (Var *)(te->expr);
-  //   elog(LOG, "tlist attno: %d %d %d", v->vartype, v->vartypmod, v->varcollid);
-  // }
-  Db721PlanState *fdw_state = (Db721PlanState *)baserel->fdw_private;
-  // List *new_tlist = make_tlist_from_pathtarget(((Path *)best_path)->pathtarget);
+  // Dog scout("Scout");
+  // elog(LOG, "db721_GetForeignPlan: %s", scout.Bark().c_str());
 
+  // Attno must be preserved from tlist to enable projection.
   Db721ExecState *exec_state = (Db721ExecState *)palloc0(sizeof(Db721ExecState));
+  Db721PlanState *fdw_state = (Db721PlanState *)baserel->fdw_private;
   exec_state->filename = fdw_state->filename;
   exec_state->rows = fdw_state->rows;
   exec_state->block_size = fdw_state->block_size;
+  // Move forward the target list.
+  exec_state->target_attr_sorted = fdw_state->target_attr_sorted;
   std::set<int> used_attr;
   int attr = -1;
   while ((attr = bms_next_member(fdw_state->target_attr, attr)) >= 0) {
-    elog(LOG, "Exec target attr %d", attr);
+    // elog(LOG, "Exec pred attr %d", attr);
     used_attr.insert(attr - 8);
-    exec_state->target_attr_sorted =
-      lappend_int(exec_state->target_attr_sorted, attr - 8);
   }
   attr = -1;
   while ((attr = bms_next_member(fdw_state->pred_attr, attr)) >= 0) {
-    elog(LOG, "Exec pred attr %d", attr);
+    // elog(LOG, "Exec pred attr %d", attr);
     used_attr.insert(attr - 8);
     exec_state->pred_attr_sorted =
       lappend_int(exec_state->pred_attr_sorted, attr - 8);
   }
   for (int attr : used_attr) {
-    elog(LOG, "Exec used attr %d", attr);
+    // elog(LOG, "Exec used attr %d", attr);
     exec_state->used_attr_sorted =
       lappend_int(exec_state->used_attr_sorted, attr);
   }
@@ -117,16 +104,14 @@ db721_GetForeignPlan(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid,
     exec_state->column_execdata[i].begin_offset = colmeta->begin_offset;
     ++i;
   }
-
-
   
   return make_foreignscan(
-    tlist,
+    fdw_state->new_tlist,
     fdw_state->remain_quals,
     baserel->relid,
     NULL,
     (List *)exec_state,
-    tlist,
+    fdw_state->new_tlist,
     NULL,
     outer_plan
   );
@@ -134,7 +119,7 @@ db721_GetForeignPlan(PlannerInfo *root, RelOptInfo *baserel, Oid foreigntableid,
 
 extern "C" void db721_BeginForeignScan(ForeignScanState *node, int eflags) {
   // TODO(721): Write me!
-  elog(LOG, "db721_BeginForeignScan");
+  // elog(LOG, "db721_BeginForeignScan");
   Db721ExecState *exec_state = ((Db721ExecState *)((ForeignScan *)node
     ->ss.ps.plan)->fdw_private);
   exec_state->InitScan();
@@ -143,19 +128,16 @@ extern "C" void db721_BeginForeignScan(ForeignScanState *node, int eflags) {
 
 extern "C" TupleTableSlot *db721_IterateForeignScan(ForeignScanState *node) {
   // TODO(721): Write me!
-  elog(LOG, "db721_IterateForeignScan");
+  // elog(LOG, "db721_IterateForeignScan");
 
   Db721ExecState *exec_state = (Db721ExecState *)node->fdw_state;
   TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
 
   TupleDesc desc = slot->tts_tupleDescriptor;
-  for (int i = 0; i < desc->natts; ++i) {
-    elog(LOG, "target attrno: %d", TupleDescAttr(desc, i)->attnum);
-  }
 
   ExecClearTuple(slot);
   TupleTableSlot *ret_slot = exec_state->IterateScan(slot);
-  elog(LOG, "slot ptr %ld", (long long)ret_slot);
+  // elog(LOG, "slot ptr %ld", (long long)ret_slot);
   return ret_slot;
 }
 

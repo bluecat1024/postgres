@@ -156,6 +156,9 @@ typedef struct Db721PlanState {
     char *filename;
     Bitmapset *target_attr;
     Bitmapset *pred_attr;
+    Bitmapset *nonpush_attr;
+    List *target_attr_sorted;
+    List *new_tlist;
     List *remain_quals;
     int rows;
     int natts;
@@ -279,7 +282,7 @@ typedef struct Db721ExecState {
         global_curr_idx = 0;
         foreach(lc, used_attr_sorted) {
             int attr = lfirst_oid(lc);
-            elog(LOG, "Init scan for column %d", attr);
+            // elog(LOG, "Init scan for column %d", attr);
             this->column_execdata[attr].InitScan(filename, block_size); 
         }
         // Place to the first valid block.
@@ -305,7 +308,7 @@ typedef struct Db721ExecState {
                     int attr = lfirst_oid(lc);
                     int num_next_blk = (block_size <= rows - this->global_curr_idx) ?
                         block_size : rows - this->global_curr_idx;
-                    elog(LOG, "Fetch block %d num %d", attr, num_next_blk);
+                    // elog(LOG, "Fetch block %d num %d", attr, num_next_blk);
                     this->column_execdata[attr].FetchBlock(
                         num_next_blk
                     );
@@ -361,11 +364,10 @@ typedef struct Db721ExecState {
 
             if (tuple_valid) {
                 // Fill in tuple slot.
-                elog(LOG, "Filling in slot");
+                // elog(LOG, "Filling in slot");
                 TupleDesc tupledesc = slot->tts_tupleDescriptor;
                 for (int attidx = 0; attidx < tupledesc->natts; ++attidx) {
-                    elog(LOG, "Get slot val %d", attidx);
-                    int curr_attr = TupleDescAttr(tupledesc, attidx)->attnum - 1;
+                    int curr_attr = list_nth_int(target_attr_sorted, attidx);
                     slot->tts_values[attidx] = column_execdata[curr_attr].GetCurrData(
                         this->curr_idx
                     );
