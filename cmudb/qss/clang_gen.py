@@ -82,7 +82,7 @@ def generate_explain(field_map, prefix, obj, pg_type, fields, indent):
             # Outputs an unsigned integer property in the EXPLAIN output.
             stmts.append(construct_with_indent(indent, f"ExplainPropertyUInteger(\"{field_name}\", NULL, {field_access}, es);"))
 
-        elif field.canonical_type_kind == clang.cindex.TypeKind.BOOL:
+        elif field.canonical_type_kind == clang.cindex.TypeKind.BOOL or field.pg_type == 'bool':
             # Outputs a boolean property in the EXPLAIN output.
             stmts.append(construct_with_indent(indent, f"ExplainPropertyBool(\"{field_name}\", {field_access}, es);"))
 

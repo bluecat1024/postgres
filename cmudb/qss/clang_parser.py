@@ -11,6 +11,8 @@ from typing import List, Mapping, Tuple
 
 import clang.cindex
 
+clang.cindex.Config.set_library_file('/home/lichenj/anaconda3/lib/libclang.so')
+
 logger = logging.getLogger("qss")
 
 # Expected path of this file: "postgres/cmudb/qss"
